@@ -9,13 +9,13 @@
 . /etc/rc.d/init.d/functions
 
 
-HSROOT=/opt/www/Skylign/current
+HSROOT=/nfs/public/rw/xfam/skylign/dev/LogoServer
 PERL5LIB=
 
 APP_NAME=skylign
 APP_PATH=$HSROOT
 SOCKET=/tmp/skylign_fastcgi.socket
-PID_PATH=/opt/run/fcgi/skylign.pid
+PID_PATH=/nfs/public/rw/xfam/skylign/dev/fcgi/skylign.pid
 PROCS=5
 PROD=prod
 USER=nobody
@@ -52,7 +52,7 @@ case $1 in
 			fi
 		fi
 
-        daemon --user=$USER "export PERLLIB=${PERL5LIB}; /opt/bin/perl $APP_PATH/script/${APP_NAME}_fastcgi.pl --daemon --listen $SOCKET --pidfile $PID_PATH --nproc $PROCS 2>>/opt/log/fcgi/skylign_error.log &"
+        daemon --user=$USER "export PERLLIB=${PERL5LIB}; /usr/bin/perl $APP_PATH/script/${APP_NAME}_fastcgi.pl --daemon --listen $SOCKET --pidfile $PID_PATH --nproc $PROCS 2>>/nfs/public/rw/xfam/skylign/dev/logs/skylign_error.log &"
         RETVAL=$?
         # Wait for the app to start
         TIMEOUT=10; while [ ! -r $PID_PATH ]; do

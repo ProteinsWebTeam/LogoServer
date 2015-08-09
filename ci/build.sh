@@ -2,21 +2,21 @@
 
 export OUTPUT=$WORKSPACE/logs
 export DISPLAY=:1
-export PATH=/opt/bin:$PATH
+export PATH=/nfs/public/rw/xfam/skylign/dev/bin/src:$PATH
 
 # minify css
 
-/opt/bin/lessc --yui-compress root/static/css/app.less root/static/css/main.min.css
+/nfs/public/rw/xfam/skylign/dev/bin/lessc --yui-compress LogoServer/root/static/css/app.less LogoServer/root/static/css/main.min.css
 
 # clear out old build files
-rm /opt/www/Skylign/current/root/static/js/main.js
-rm /opt/www/Skylign/current/root/static/js/main.min.js
-rm /opt/www/Skylign/current/root/static/js/00-libs.js
+rm /nfs/public/rw/xfam/skylign/dev/LogoServer/root/static/js/main.js
+rm /nfs/public/rw/xfam/skylign/dev/LogoServer/root/static/js/main.min.js
+rm /nfs/public/rw/xfam/skylign/dev/LogoServer/root/static/js/00-libs.js
 
 
 # minify and compress the javascript
-cat /opt/www/Skylign/current/root/static/js/libs/*.js > /opt/www/Skylign/current/root/static/js/00-libs.js
-cat /opt/www/Skylign/current/root/static/js/*.js > /opt/www/Skylign/current/root/static/js/main.js
+cat /nfs/public/rw/xfam/skylign/dev/LogoServer/root/static/js/libs/*.js > /opt/www/Skylign/current/root/static/js/00-libs.js
+cat /nfs/public/rw/xfam/skylign/dev/LogoServer/root/static/js/*.js > /opt/www/Skylign/current/root/static/js/main.js
 
 
 /usr/bin/java -jar /opt/lib/java/compiler.jar --js /opt/www/Skylign/current/root/static/js/main.js --js_output_file /opt/www/Skylign/current/root/static/js/main.min.js

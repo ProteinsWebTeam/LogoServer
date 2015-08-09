@@ -11,8 +11,8 @@ BEGIN {
 use Inline C         => "$src_file",
            ENABLE    => 'AUTOWRAP',
            #DIRECTORY => '/opt/www/HmmerWeb/current/build',
-           INC       => '-I/opt/src/hmmer/easel -I/opt/src/hmmer/src',
-           LIBS      => '-L/opt/src/hmmer/easel -L/opt/src/hmmer/src -lhmmer -leasel -lsvml -lirc',
+           INC       => '-I/nfs/public/rw/xfam/skylign/dev/hmmer/easel -I/nfs/public/rw/xfam/skylign/dev/hmmer/src',
+           LIBS      => '-L/nfs/public/rw/xfam/skylign/dev/hmmer/easel -L/nfs/public/rw/xfam/skylign/dev/hmmer/src -lhmmer -leasel -lsvml -lirc',
            NAME      => 'Easel::Validation',
            ENABLE    => 'SAFEMODE',
            ENABLE    => 'CLEAN_BUILD_AREA', #Production have enabled
