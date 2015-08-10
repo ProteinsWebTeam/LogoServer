@@ -2,7 +2,7 @@
 
 export OUTPUT=$WORKSPACE/logs
 export DISPLAY=:1
-export PATH=/nfs/public/rw/xfam/skylign/dev/bin/src:$PATH
+export PATH=/nfs/public/rw/xfam/skylign/dev/bin:/nfs/public/rw/xfam/skylign/dev/bin/node/bin:$PATH
 
 # minify css
 
