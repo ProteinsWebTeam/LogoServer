@@ -23,7 +23,7 @@ cat /nfs/public/rw/xfam/skylign/dev/LogoServer/root/static/js/*.js > /opt/www/Sk
 
 
 # set permission on the build directory for Inline-C
-chown -R nobody: $WORKSPACE/*
+#chown -R nobody: $WORKSPACE/*
 
 mkdir -p $OUTPUT
 
