@@ -93,7 +93,7 @@ sub png : Chained('capture_uuid') : PathPart('png') {
   $c->response->body($png);
   my $fname = "$uuid.png";
   $c->res->header( 'Content-Disposition' => "attachment; filename=$fname" );
-  $c->res->header( 'Content-Type'        => 'text/plain' );
+  $c->res->header( 'Content-Type'        => 'image/png' );
   return;
 }
 
