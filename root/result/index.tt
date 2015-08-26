@@ -39,7 +39,7 @@
       </dl>
       <div class="row-fluid">
         <div class="span12">
-          <h2 id="logo_form"><span>Try another search</span></h2>
+          <h2 id="logo_form"><span>Generate another Logo</span></h2>
           [% INCLUDE 'components/logo_form.tt' %]
         </div>
       </div>
