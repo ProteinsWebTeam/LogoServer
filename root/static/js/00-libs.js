@@ -204,7 +204,1945 @@
     e.preventDefault()
   })
 
-}(window.jQuery);/*! hmm_logo 2014-04-30 */
+}(window.jQuery);(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+"use strict";
+
+var ActiveSites;
+
+var isNumeric = function( n ) {
+    return !isNaN(parseFloat(n)) && isFinite(n);
+};
+ActiveSites = function(options) {
+
+    // All this coordinates start in 1
+    options = options || {};
+    this.name = options.name || "";
+    this.sites = options.active_sites || 1;
+    this.proteins = options.proteins || 0;
+    this.source = options.source || 0;
+    this.over=-1;
+};
+
+
+
+//ActiveSites.prototype.isOver = function(){
+//    if (!this.over){
+//
+//    }
+//    this.over=true;
+//}
+ActiveSites.prototype.whatShouldBeDraw = function(column){
+    for (var i=0; i<this.sites.length;i++) {
+        if (this.sites[i].column == column) {
+            this.sites[i].type = "BLOCK";
+            return this.sites[i];
+        }
+    }
+    if (this.sites[0].column<column && column<this.sites[this.sites.length-1].column) {
+        this.sites[0].type = "LINE";
+        return this.sites[0];
+    }
+    return null;
+};
+ActiveSites.prototype.sortSites = function(columns){
+    this.sites = this.sites.sort(function(a, b) {
+        if (typeof a.column == "undefined") return -1;
+        if (typeof b.column == "undefined") return 1;
+        return a.column - b.column;
+    });
+};
+ActiveSites.prototype.getSitesHTML = function(column){
+    var html = "<ul>";
+    for (var i=0; i<this.sites.length; i++){
+        var site = this.sites[i],
+            css = (column==site.column)?"current_site":"";
+
+        html += "<li class='"+css+"'><i>Column "+site.column+":</i>"+site.base+"</li>";
+    }
+    return html+"</ul>";
+};
+
+ActiveSites.prototype.getProteinsHTML = function(column){
+    var html = "<ul>";
+    for (var i=0; i<this.proteins.length; i++){
+        var p =this.proteins[i];
+        html += "<li><a target='_blank' href='http://www.uniprot.org/uniprot/"+p+"'>"+p+"</a></li>";
+    }
+    return html+"</ul>";
+};
+if (typeof module != "undefined")
+    module.exports = ActiveSites
+},{}],2:[function(require,module,exports){
+"use strict";
+
+var ActiveSites   = require("./ActiveSites.js"),
+    ActiveSitesPanel = require("./ActiveSitesPanel.js");
+
+var ActiveSitesAdder;
+
+ActiveSitesAdder = function(data, hmm_logo) {
+    this.data = data;
+    this.hmm_logo = hmm_logo;
+    this.panel = null;
+
+    this.resetData = function(data) {
+        this.data = data;
+        this.panel = null;
+    };
+
+    this.process = function(){
+        for (var i=0; i<this.data.length;i++) {//for each pattern
+            var x = new ActiveSites(this.data[i]);
+            this.data[i].controller=x;
+            //for (var j=0;j< this.data[i].residues.length;j++) { // for each residue
+            //    var col = x.getColumnFromResidue(this.data[i].residues[j].residue);
+            //    if (col > 0 ) {
+            //        this.data[i].residues[j].column = col;
+            //        this.data[i].residues[j].base = x.sequence[this.data[i].residues[j].residue-1];
+            //    }
+            //}
+            x.sortSites();
+        }
+    };
+
+    this.setDrawingOptions = function(options){
+        options.hmm_logo = this.hmm_logo;
+        options.data = this.data;
+        if (this.panel==null)
+            this.panel = new ActiveSitesPanel(options);
+    };
+
+};
+
+if (typeof module != "undefined")
+    module.exports = ActiveSitesAdder;
+},{"./ActiveSites.js":1,"./ActiveSitesPanel.js":3}],3:[function(require,module,exports){
+"use strict";
+
+var CanvasButton = require("../components/canvas_button.js");
+
+var ActiveSitesPanel;
+
+
+ActiveSitesPanel = function(options) {
+    var self = this;
+    this.margin_to_features = options.margin_to_features || 0;
+    this.padding_between_tracks = options.padding_between_tracks || 0;
+    this.feature_height = options.feature_height || 10;
+
+    this.hmm_logo = options.hmm_logo || null;
+    this.data = options.data || null;
+
+    this.canvas = null;
+    this.context =null;
+    this.components =[];
+
+    var top = 1 + this.margin_to_features+this.padding_between_tracks+this.feature_height/ 2,
+        w = this.feature_height* 2,
+        h = this.feature_height*6;
+
+    this.offsetY=0;
+    this.top_limit=0;
+    this.bottom_limit=h-2*this.feature_height;
+
+    this.addedEvents=false;
+
+    var up_button   = new CanvasButton({x:3, y: top+2,     w: w-6, h: w-6}),
+        down_button = new CanvasButton({x:3, y: top+h-w+2, w: w-6, h: w-6});
+
+    this.components.push(up_button);
+    this.components.push(down_button);
+
+    // create an empty <span>
+    var dragImgEl = document.createElement('span');
+    dragImgEl.setAttribute('style',
+        'position: absolute; display: block; top: 0; left: 0; width: 0; height: 0;' );
+    document.body.appendChild(dragImgEl);
+
+    up_button.draw = function(context){
+        draw_polygone(context,[
+            [this.x+this.w/2, this.y],
+            [this.x, this.y+this.h],
+            [this.x+this.w, this.y+this.h]],
+            (this.getState()==this.STATE_NORMAL)?"rgba(255,100,10, 0.3)":"rgba(255,100,10, 1)"
+        );
+    };
+    down_button.draw = function(context){
+        draw_polygone(context,[
+                [this.x+this.w/2, this.y+this.h],
+                [this.x, this.y],
+                [this.x+this.w, this.y]],
+            (this.getState()==this.STATE_NORMAL)?"rgba(255,100,10, 0.3)":"rgba(255,100,10, 1)"
+        );
+    };
+
+    up_button.onClick = function(){
+        self.offsetY = (self.offsetY<=self.bottom_limit)?self.bottom_limit:self.offsetY-1;
+        self.hmm_logo.refresh();
+    };
+    down_button.onClick = function(){
+        self.offsetY = (self.offsetY>=self.top_limit)?self.top_limit:self.offsetY+1;
+        self.hmm_logo.refresh();
+    };
+
+    this.getMouse = function (e) {
+        var element = this.canvas, offsetX = 0, offsetY = 0, mx, my;
+
+        // Compute the total offset
+        if (element.offsetParent !== undefined) {
+            do {
+                offsetX += element.offsetLeft;
+                offsetY += element.offsetTop;
+            } while ((element = element.offsetParent));
+        }
+
+        // Add padding and border style widths to offset
+        // Also add the offsets in case there's a position:fixed bar
+        offsetX += getAmountFromStyle(this.canvas, "paddingLeft") + getAmountFromStyle(this.canvas, "borderLeft") + getAmountFromStyle(this.canvas, "left");
+        offsetY += getAmountFromStyle(this.canvas, "paddingTop") + getAmountFromStyle(this.canvas, "borderTop") + getAmountFromStyle(this.canvas, "top");
+
+        mx = e.pageX - offsetX;
+        my = e.pageY - offsetY;
+
+        // We return a simple javascript object (a hash) with x and y defined
+        return {x: mx, y: my};
+
+    };
+    this.initialize_2nd_axis = function(second_axis){
+        second_axis = this.hmm_logo.render_2nd_y_axis_label();
+        return second_axis;
+    };
+    this.addEvents = function(second_axis,logo_canvas){
+        second_axis.addEventListener('mousemove', function(e) {
+            var mouse = self.getMouse(e),
+                refresh = false;
+
+            for (var i=0;i<self.components.length;i++) {
+                var previous = self.components[i].getState();
+                self.components[i].mousemove(mouse);
+                if (previous != self.components[i].getState())
+                    refresh=true;
+            }
+            if(refresh)
+                self._paint_2nd_axis();
+        });
+        second_axis.addEventListener('click', function(e) {
+            var mouse = self.getMouse(e);
+//            for (var i=0;i<self.components.length;i++)
+//                self.components[i].click(mouse);
+        });
+        second_axis.addEventListener('mousedown', function(e) {
+            var mouse = self.getMouse(e);
+            self.timer = setInterval( function(){
+                for (var i=0;i<self.components.length;i++)
+                    self.components[i].click(mouse);
+
+            }, 20 );
+
+        });
+        second_axis.addEventListener('mouseup', function(e) {
+            var mouse = self.getMouse(e);
+            clearInterval(self.timer);
+            for (var i=0;i<self.components.length;i++)
+                self.components[i].click(mouse);
+        });
+        var y_axis = document.getElementsByClassName("logo_yaxis")[0],
+            prevY=null;
+
+        y_axis.addEventListener('dragstart', function(e) {
+            //e.dataTransfer.setDragImage(null,0,0);
+
+            e.dataTransfer.setDragImage(dragImgEl, 0, 0);
+            var mouse = self.getMouse(e);
+            if (top< mouse.y && mouse.y<top+h-self.feature_height) {
+                prevY=mouse.y;
+            }
+        });
+
+        y_axis.addEventListener('drag', function(e) {
+            var mouse = self.getMouse(e);
+            if (top< mouse.y && mouse.y<top+h-self.feature_height) {
+                if (prevY!=null) {
+                    var deltaY = mouse.y - prevY;
+                    if (self.offsetY + deltaY>= self.top_limit){
+                        self.offsetY = self.top_limit;
+                    }else if (self.offsetY + deltaY<= self.bottom_limit) {
+                        self.offsetY = self.bottom_limit;
+                    }else
+                        self.offsetY = self.offsetY + deltaY;
+
+                    self.hmm_logo.refresh();
+                }
+                prevY=mouse.y;
+            }
+        });
+        y_axis.addEventListener('dragstart', function(e) {
+            prevY=null;
+        });
+
+        logo_canvas.addEventListener("mousemove",function(evt){
+            var mouse = self.getMouse(evt),
+                box = this.getBoundingClientRect(),
+                offset = box.left + window.pageXOffset - document.documentElement.clientLeft,
+                x = parseInt((evt.pageX - offset), 10),
+                col = self.hmm_logo.columnFromCoordinates(x),
+                track=self.get_track_from_y(mouse.y),
+                refresh=false,
+                clear=false;
+            if (top< mouse.y && mouse.y<top+h){
+                if (typeof self.active_sites_in_canvas[col] != "undefined" && typeof self.active_sites_in_canvas[col][track] != "undefined") {
+                    var site = self.active_sites_in_canvas[col][track];
+                    if (site.controller.over==-1) {
+                        for (var i in self.active_sites_in_canvas)
+                            for (var j in self.active_sites_in_canvas[i])
+                                self.active_sites_in_canvas[i][j].controller.over=-1;
+                        refresh=true;
+                        site.controller.over=col;
+                    }
+                } else
+                    clear = true;
+            }else
+                clear = true;
+            if (clear)
+                for (var i in self.active_sites_in_canvas)
+                    for (var j in self.active_sites_in_canvas[i]) {
+                        if (self.active_sites_in_canvas[i][j].controller.over!=-1)
+                            refresh=true;
+                        self.active_sites_in_canvas[i][j].controller.over = -1;
+                    }
+            if(refresh)
+                self.hmm_logo.refresh();
+        });
+        logo_canvas.addEventListener("click",function(evt){
+            for (var i in self.active_sites_in_canvas)
+                for (var j in self.active_sites_in_canvas[i]) {
+                    var controller = self.active_sites_in_canvas[i][j].controller;
+                    if (controller.over != -1) {
+                        var site_e = document.getElementById("active_site_info");
+                        if (site_e!=null) site_e.innerHTML =
+                            "<h2>Active Site Pattern</h2>" +
+                            "<ul>" +
+                            "   <li><b>Name:</b>"   + controller.name   + "</li>" +
+                            "   <li><b>Source:</b>" + controller.source + "</li>" +
+                            "   <li><b>Sites:</b>" + controller.getSitesHTML(controller.over) + "</li>" +
+                            "   <li><b>Reported Proteins:</b>" + controller.getProteinsHTML(controller.over) + "</li>" +
+                            "</ul>";
+                    }
+                }
+
+        });
+        this.bottom_limit = h - (Object.keys(self.data).length+0.5) * (this.feature_height +this.padding_between_tracks)
+        this.addedEvents=true;
+    };
+    this.get_track_from_y = function(y){
+        return Math.floor((y - self.offsetY - this.margin_to_features)/(this.padding_between_tracks + this.feature_height));
+    };
+    this.active_sites_in_canvas={};
+    this.paint = function (context_num, start, end) {
+        var second_axis = document.getElementById("second_y_axis");
+        if (second_axis==null)
+            second_axis = this.initialize_2nd_axis();
+        this.canvas = second_axis;
+
+        this._paint_2nd_axis(second_axis.getContext('2d'));
+
+        this._paint_background(this.hmm_logo.contexts[context_num]);
+        this.active_sites_in_canvas={};
+        for (var i = start,x=0; i <= end; i++) {
+            this._paint_column(context_num,i,x);
+            x += this.hmm_logo.zoomed_column;
+        }
+
+        this.hmm_logo.paint_y_axis_label();
+
+        if (!this.addedEvents)
+            this.addEvents(second_axis,document.getElementsByClassName("logo_graphic")[0]);
+
+    };
+
+    this._paint_2nd_axis = function(context){
+        context = context || self.context;
+        self.context = context;
+        context.clearRect(0, top, w, h);
+       // var offset = (mode_button.mode==self.MODE_MULTIPLE)?0:w;
+
+        draw_box(context, 0, top, w, h,
+            "rgba(100,100,100, 0.2)","rgba(100,100,100, 0.0)"
+        );
+        for (var i=0;i<self.components.length;i++)
+            self.components[i].draw(context);
+    };
+    this._paint_column = function(context_num,i,x) {
+        var track =0;
+        for (var j=0; j<this.data.length;j++) {
+            track++;
+            var wtd = this.data[j].controller.whatShouldBeDraw(i);
+            if (wtd == null)
+                continue;
+            var color = this.hmm_logo.aa_colors[wtd.base],
+                y1 = self.offsetY + this.margin_to_features + track * (this.padding_between_tracks + this.feature_height);
+
+            if (top<y1 && y1<top+h-this.feature_height) {
+                if (wtd.type == "BLOCK") {
+                    if (typeof this.active_sites_in_canvas[i] == "undefined")
+                        this.active_sites_in_canvas[i]={};
+                    this.active_sites_in_canvas[i][track]=this.data[j];
+                    draw_box(this.hmm_logo.contexts[context_num],
+                        x + 1,
+                        self.offsetY + this.margin_to_features + track * (this.padding_between_tracks + this.feature_height),
+                        this.hmm_logo.zoomed_column - 2,
+                        this.feature_height, color,
+                        (this.data[j].controller.over==i)?"#000":"#AAA0AF");
+                } else if (wtd.type == "LINE") {
+                    draw_line(this.hmm_logo.contexts[context_num],
+                        x,
+                        self.offsetY + this.margin_to_features + this.padding_between_tracks * track + (track + 0.5) * this.feature_height,
+                        x + this.hmm_logo.zoomed_column,
+                        self.offsetY + this.margin_to_features + this.padding_between_tracks * track + (track + 0.5) * this.feature_height,
+                        "#AAA0AF");
+                }
+            }
+        }
+    };
+    this._paint_background = function(context){
+        draw_box(context, 0, top-1, context.canvas.width, h,
+            "rgba(100,100,100, 0.2)","rgba(100,100,100, 0.0)"
+        );
+    };
+    this.paintLabels = function(context){
+        draw_box(context, 0, top, context.canvas.width, h,
+            "rgba(100,100,100, 0.2)","rgba(100,100,100, 0.0)"
+        );
+        context.fillStyle = "#666666";
+        context.strokeStyle = "#666666";
+        context.textAlign = "right";
+        var track =0;
+        for (var j=0; j<this.data.length;j++) {
+            track++;
+            var y1 = self.offsetY + this.margin_to_features + track * (this.padding_between_tracks + this.feature_height);
+            if (top<y1 && y1<top+h-this.feature_height) {
+                var y2 =self.offsetY + this.margin_to_features + this.padding_between_tracks * track + (track + 0.5) * this.feature_height;
+                var fs = 12 - 4*Math.abs(1-(y2-top)/(h/2));
+                context.font = "bold "+fs+"px Arial";
+                context.fillText(
+                    this.data[j].name,
+                    53,
+                    y2
+                );
+            }
+        }
+        context.font = "bold 10px Arial";
+    };
+    function draw_box(context, x, y, width, height, color,border) {
+        color = color || "rgba(100,100,100, 0.2)";
+        border = border || "rgba(100,100,100, 0.8)";
+        context.fillStyle = color;
+        context.strokeStyle = border;
+        context.fillRect(x, y, width, height);
+        context.strokeRect(x, y, width, height);
+    }
+    function draw_line(context, x1, y1, x2, y2, color) {
+        color = color || "rgba(100,100,100, 0.8)";
+        context.beginPath();
+        context.moveTo(x1, y1);
+        context.lineTo(x2, y2);
+        context.lineWidth = 1;
+        context.strokeStyle = color;
+        context.stroke();
+    }
+    function draw_polygone(context,points,color) {
+        context.fillStyle = color;
+        context.strokeStyle = color;
+        context.beginPath();
+        context.moveTo(points[0][0],points[0][1]);
+        for (var i=1;i<points.length;i++)
+            context.lineTo(points[i][0],points[i][1]);
+        context.fill();
+
+    }
+    function draw_circle(context,x,y,radius,color) {
+        context.fillStyle = color;
+        context.strokeStyle = color;
+        context.beginPath();
+        context.arc(x, y, radius, 0, Math.PI*2, true);
+        context.fill();
+    }
+};
+
+function getAmountFromStyle(element,attribute){
+    var value = parseInt(element.style[attribute]);
+    return (isNaN(value))?0:value;
+}
+
+if (typeof module != "undefined")
+    module.exports = ActiveSitesPanel;
+
+},{"../components/canvas_button.js":4}],4:[function(require,module,exports){
+/**
+ * Created by gsalazar on 05/01/2016.
+ */
+"use strict";
+
+var CanvasButton;
+
+CanvasButton = function(options) {
+    options = options || {};
+    this.x = options.x || 0;
+    this.y = options.y || 0;
+    this.w = options.w || 10;
+    this.h = options.h || 10;
+    this.color = options.color || "#000000";
+    this.hover_color = options.hover_color || "#882222";
+
+    this.STATE_NORMAL = 0;
+    this.STATE_CLICKED = 1;
+    this.STATE_MOUSE_OVER = 2
+
+    var state = this.STATE_NORMAL;
+
+    this.getState = function(){
+        return state;
+    };
+    this.draw = function(context){
+        context.fillStyle = ((state==this.STATE_NORMAL)?this.color:this.hover_color);
+        context.fillRect(this.x, this.y, this.w, this.h);
+    };
+
+    this.mousemove = function(mouse){
+        switch (state){
+            case this.STATE_NORMAL:
+                if (mouse.x>this.x && mouse.x<this.x+this.w && mouse.y>this.y && mouse.y<this.y+this.h)
+                    state = this.STATE_MOUSE_OVER;
+                break;
+            case this.STATE_MOUSE_OVER:
+                if (mouse.x<this.x || mouse.x>this.x+this.w || mouse.y<this.y || mouse.y>this.y+this.h)
+                    state = this.STATE_NORMAL;
+                break;
+        }
+    }
+    this.click = function(mouse){
+        if (state==this.STATE_MOUSE_OVER){
+            this.onClick(mouse);
+        }
+    }
+    this.onClick = function(mouse) {};
+    this.onActionPerformed = function() {
+        state = this.STATE_NORMAL;
+    };
+    this.onMouseOver = function(){
+    }
+    this.onMouseOut = function(){
+        state = this.STATE_NORMAL;
+    }
+};
+
+if (typeof module != "undefined")
+    module.exports = CanvasButton
+},{}],5:[function(require,module,exports){
+// checking for canvas support and caching result
+var canv_support = null;
+
+function canvasSupport() {
+    if (!canv_support) {
+        var elem = document.createElement('canvas');
+        canv_support = !!(elem.getContext && elem.getContext('2d'));
+    }
+    return canv_support;
+}
+
+if (typeof module != "undefined")
+    module.exports = canvasSupport;
+},{}],6:[function(require,module,exports){
+function ConsensusColors() {
+
+    this.grey = '#7a7a7a';
+
+    function arbitrate(threshold, scoreref) {
+        var bestclass = '.',
+            bestscore   = 0,
+            type        = null,
+            a           = null,
+            b           = null,
+            classSize = {
+                '.' : 20,
+                'h' : 11,
+                '+' : 3,
+                '-' : 2,
+                'o' : 2,
+                'p' : 2
+            };
+
+        for (type in scoreref) {
+            if (scoreref.hasOwnProperty(type)) {
+                if (scoreref[type] >= threshold) {
+                    a = classSize[type] || 1;
+                    b = classSize[bestclass] || 1;
+
+                    if (a < b) {
+                        bestclass = type;
+                        bestscore = scoreref[type];
+                    } else if (a === b) {
+                        if (scoreref[type] > bestscore) {
+                            bestclass = type;
+                            bestscore = scoreref[type];
+                        }
+                    }
+                }
+            }
+        }
+        return bestclass;
+    }
+
+    this.check_PG = function (pos, consensuses, colorsRef) {
+        colorsRef[pos].P = '#ffff11';
+        colorsRef[pos].G = '#ff7f11';
+        return 1;
+    };
+
+    this.check_R = function (pos, consensuses, colorsRef) {
+        colorsRef[pos].R = this.grey;
+
+        var red = '#FF9999',
+            letters = ['Q', 'K', 'R'],
+            i = 0;
+
+        for (i = 0; i < letters.length; i++) {
+            if (consensuses['0.85'][pos] === letters[i]) {
+                colorsRef[pos].R = red;
+                return 1;
+            }
+        }
+
+        if (consensuses['0.60'][pos] === '+' ||  consensuses['0.60'][pos] === 'R' || consensuses['0.60'][pos] === 'K') {
+            colorsRef[pos].R = red;
+            return 1;
+        }
+        return 1;
+    };
+
+    this.check_Q = function (pos, consensuses, colorsRef) {
+        colorsRef[pos].Q = this.grey;
+
+        var green = '#99FF99',
+            letters = ['Q', 'T', 'K', 'R'],
+            i = 0;
+
+        if (consensuses['0.50'][pos] === 'b' ||
+            consensuses['0.50'][pos] === 'E' ||
+            consensuses['0.50'][pos] === 'Q') {
+            colorsRef[pos].Q = green;
+            return 1;
+        }
+
+        for (i = 0; i < letters.length; i++) {
+            if (consensuses['0.85'][pos] === letters[i]) {
+                colorsRef[pos].Q = green;
+                return 1;
+            }
+        }
+
+        if (consensuses['0.60'][pos] === '+' ||
+            consensuses['0.60'][pos] === 'K' ||
+            consensuses['0.50'][pos] === 'R') {
+            colorsRef[pos].Q = green;
+            return 1;
+        }
+
+        return 1;
+    };
+
+    this.check_N = function (pos, consensuses, colorsRef) {
+        colorsRef[pos].N = this.grey;
+
+        var green = '#99FF99';
+
+        if (consensuses['0.50'][pos] === 'N') {
+            colorsRef[pos].N = green;
+            return 1;
+        }
+
+        if (consensuses['0.85'][pos] === 'D') {
+            colorsRef[pos].N = green;
+            return 1;
+        }
+
+        return 1;
+    };
+
+    this.check_K = function (pos, consensuses, colorsRef) {
+        colorsRef[pos].K = this.grey;
+
+        var red = '#FF9999',
+            letters = ['K', 'R', 'Q'],
+            i = 0;
+
+        if (consensuses['0.60'][pos] === '+' ||
+            consensuses['0.60'][pos] === 'R' ||
+            consensuses['0.60'][pos] === 'K') {
+            colorsRef[pos].K = red;
+            return 1;
+        }
+
+        for (i = 0; i < letters.length; i++) {
+            if (consensuses['0.85'][pos] === letters[i]) {
+                colorsRef[pos].K = red;
+                return 1;
+            }
+        }
+        return 1;
+    };
+
+    this.check_E = function (pos, consensuses, colorsRef) {
+        colorsRef[pos].E = this.grey;
+
+        var red = '#FF9999',
+            letters = ['D', 'E'],
+            i = 0;
+
+        if (consensuses['0.60'][pos] === '+' ||
+            consensuses['0.60'][pos] === 'R' ||
+            consensuses['0.60'][pos] === 'K') {
+            colorsRef[pos].E = red;
+            return 1;
+        }
+
+        for (i = 0; i < letters.length; i++) {
+            if (consensuses['0.85'][pos] === letters[i]) {
+                colorsRef[pos].E = red;
+                return 1;
+            }
+        }
+
+        if (consensuses['0.50'][pos] === 'b' ||
+            consensuses['0.50'][pos] === 'E' ||
+            consensuses['0.50'][pos] === 'Q') {
+            colorsRef[pos].E = red;
+            return 1;
+        }
+
+        return 1;
+    };
+
+    this.check_D = function (pos, consensuses, colorsRef) {
+        colorsRef[pos].D = this.grey;
+
+        var red = '#FF9999',
+            letters = ['D', 'E', 'N'],
+            i = 0;
+
+        if (consensuses['0.60'][pos] === '+' ||
+            consensuses['0.60'][pos] === 'R' ||
+            consensuses['0.60'][pos] === 'K') {
+            colorsRef[pos].D = red;
+            return 1;
+        }
+
+        for (i = 0; i < letters.length; i++) {
+            if (consensuses['0.85'][pos] === letters[i]) {
+                colorsRef[pos].D = red;
+                return 1;
+            }
+        }
+
+        if (consensuses['0.50'][pos] === '-' ||
+            consensuses['0.60'][pos] === 'E' ||
+            consensuses['0.60'][pos] === 'D') {
+            colorsRef[pos].D = red;
+            return 1;
+        }
+
+        return 1;
+    };
+
+    this.check_ACFILMVW = function (pos, consensuses, colorsRef) {
+        var aa = ['A', 'C', 'F', 'L', 'I', 'M', 'V', 'W'],
+            caa = ['A', 'C', 'F', 'H', 'I', 'L', 'M', 'V', 'W', 'Y', 'P', 'Q', 'h'],
+            i = 0,
+            j = 0;
+
+        for (i = 0; i < aa.length; i++) {
+            colorsRef[pos][aa[i]] = this.grey;
+            for (j = 0; j < caa.length; j++) {
+                if (consensuses['0.60'][pos] === caa[j]) {
+                    colorsRef[pos][aa[i]] = '#9999FF';
+                }
+            }
+        }
+        return 1;
+    };
+
+    this.check_ST = function (pos, consensuses, colorsRef) {
+        colorsRef[pos].S = this.grey;
+        colorsRef[pos].T = this.grey;
+
+        var letters = ['A', 'C', 'F', 'H', 'I', 'L', 'M', 'V', 'W', 'Y', 'P', 'Q'],
+            i = 0;
+
+        if (consensuses['0.50'][pos] === 'a' ||
+            consensuses['0.50'][pos] === 'S' ||
+            consensuses['0.50'][pos] === 'T') {
+            colorsRef[pos].S = '#99FF99';
+            colorsRef[pos].T = '#99FF99';
+            return 1;
+        }
+
+        for (i = 0; i < letters.length; i++) {
+            if (consensuses['0.85'][pos] === letters[i]) {
+                colorsRef[pos].S = '#99FF99';
+                colorsRef[pos].T = '#99FF99';
+                return 1;
+            }
+        }
+    };
+
+    this.check_HY = function (pos, consensuses, colorsRef) {
+        colorsRef[pos].H = this.grey;
+        colorsRef[pos].Y = this.grey;
+
+        var letters = ['A', 'C', 'F', 'H', 'I', 'L', 'M', 'V', 'W', 'Y', 'P', 'Q', 'h'],
+            i = 0,
+            cyan = '#99FFFF';
+
+        if (consensuses['0.60'][pos] === 'h') {
+            colorsRef[pos].H = cyan;
+            colorsRef[pos].Y = cyan;
+            return 1;
+        }
+
+        for (i = 0; i < letters.length; i++) {
+            if (consensuses[0.85][pos] === letters[i]) {
+                colorsRef[pos].H = cyan;
+                colorsRef[pos].Y = cyan;
+                return 1;
+            }
+        }
+
+        return 1;
+    };
+
+    this.color_map = function (probs_array) {
+        var thresholds = ['0.50', '0.60', '0.80', '0.85'],
+            hydro = {
+                'W': 1,
+                'L': 1,
+                'V': 1,
+                'I': 1,
+                'M': 1,
+                'A': 1,
+                'F': 1,
+                'C': 1,
+                'Y': 1,
+                'H': 1,
+                'P': 1
+            },
+            polar = { 'Q': 1,  'N': 1},
+            positive = { 'K': 1, 'R': 1, 'H': 1 },
+            alcohol  = { 'S': 1, 'T': 1 },
+            negative = { 'E': 1, 'D': 1 },
+            cons = {},
+            colors = [],
+            i = 0,
+            c = 0,
+            t = 0,
+            a = 0,
+            aa = [],
+            column = null,
+            score = {},
+            consensusCol = null,
+            threshold = null;
+
+
+        for (c = 0; c < probs_array.length; c++) {
+            column = probs_array[c];
+            for (t = 0; t < thresholds.length; t++) {
+                threshold = thresholds[t];
+                score = {
+                    'p': 0,
+                    'o': 0,
+                    '-': 0,
+                    '+': 0,
+                    'h': 0
+                };
+                for (a = 0; a < column.length; a++) {
+                    aa = [];
+                    aa = column[a].split(':');
+                    score[aa[0]] = parseFloat(aa[1], 10);
+                    if (polar[aa[0]]) {
+                        score.p = score.p + parseFloat(aa[1], 10);
+                        continue;
+                    }
+
+                    if (alcohol[aa[0]]) {
+                        score.o = score.o + parseFloat(aa[1], 10);
+                        continue;
+                    }
+
+                    if (negative[aa[0]]) {
+                        score['-'] = score['-'] + parseFloat(aa[1], 10);
+                        continue;
+                    }
+
+                    if (positive[aa[0]]) {
+                        score['+'] = score['+'] + parseFloat(aa[1], 10);
+                    }
+
+                    if (hydro[aa[0]]) {
+                        score.h = score.h + parseFloat(aa[1], 10);
+                    }
+                }
+                consensusCol = arbitrate(threshold, score);
+                if (!cons[threshold]) {
+                    cons[threshold] = [];
+                }
+                cons[threshold].push(consensusCol);
+            }
+        }
+
+        for (i = 0; i < probs_array.length; i++) {
+            colors[i] = {};
+            this.check_D(i, cons, colors);
+            this.check_R(i, cons, colors);
+            this.check_Q(i, cons, colors);
+            this.check_N(i, cons, colors);
+            this.check_K(i, cons, colors);
+            this.check_E(i, cons, colors);
+            this.check_HY(i, cons, colors);
+            this.check_ACFILMVW(i, cons, colors);
+            //Colour alcohol.....
+            this.check_ST(i, cons, colors);
+            //Proline and Glycine get fixed colors....
+            this.check_PG(i, cons, colors);
+        }
+
+        return colors;
+
+    };
+}
+
+if (typeof module != "undefined")
+    module.exports = ConsensusColors;
+},{}],7:[function(require,module,exports){
+if (typeof module != "undefined")
+    var Letter = require("./letter.js"),
+        canvasSupport   = require("./canvas_support.js"),
+        ConsensusColors = require("./consensus_colors.js");
+
+
+var feature_height = 10,
+    margin_to_features = 10,
+    padding_between_tracks=4;
+
+function HMMLogo(options) {
+    options = options || {};
+
+    this.column_width = options.column_width || 34;
+    this.height = options.height || 300;
+    this.data = options.data || null;
+    this.debug = options.debug || null;
+    this.scale_height_enabled = options.height_toggle || null;
+    if (options.zoom_buttons && options.zoom_buttons === 'disabled') {
+        this.zoom_enabled = null;
+    } else {
+        this.zoom_enabled = true;
+    }
+
+
+    this.colorscheme = options.colorscheme || 'default';
+
+    // never show the alignment coordinates by default as that would get
+    // really confusing.
+    this.display_ali_map = 0;
+
+    this.alphabet = options.data.alphabet || 'dna';
+    this.dom_element = options.dom_element || $('body');
+    this.called_on = options.called_on || null;
+    this.start = options.start || 1;
+    this.end = options.end || this.data.height_arr.length;
+    this.zoom = parseFloat(options.zoom) || 0.4;
+    this.default_zoom = this.zoom;
+
+    this.active_sites_sources = options.active_sites_sources || null;
+    this.show_active_sites = false;
+    this.active_sites_adder = null;
+
+    // turn off the insert rows if the hmm used the observed or weighted processing flags.
+    if (this.data.processing && /^observed|weighted/.test(this.data.processing)) {
+        this.show_inserts = 0;
+        this.info_content_height = 286;
+    } else {
+        this.show_inserts = 1;
+        this.info_content_height = 256;
+    }
+    this.column_hover = -1;
+    this.column_clicked = -1;
+
+
+    if (options.scaled_max) {
+        this.data.max_height = options.data.max_height_obs || this.data.max_height || 2;
+    } else {
+        this.data.max_height = options.data.max_height_theory || this.data.max_height || 2;
+    }
+
+
+    this.dna_colors = {
+        'A': '#cbf751',
+        'C': '#5ec0cc',
+        'G': '#ffdf59',
+        'T': '#b51f16',
+        'U': '#b51f16'
+    };
+
+    this.aa_colors = {
+        'A': '#FF9966',
+        'C': '#009999',
+        'D': '#FF0000',
+        'E': '#CC0033',
+        'F': '#00FF00',
+        'G': '#f2f20c',
+        'H': '#660033',
+        'I': '#CC9933',
+        'K': '#663300',
+        'L': '#FF9933',
+        'M': '#CC99CC',
+        'N': '#336666',
+        'P': '#0099FF',
+        'Q': '#6666CC',
+        'R': '#990000',
+        'S': '#0000FF',
+        'T': '#00FFFF',
+        'V': '#FFCC33',
+        'W': '#66CC66',
+        'Y': '#006600'
+    };
+
+    // set the color library to use.
+    this.colors = this.dna_colors;
+
+    if (this.alphabet === 'aa') {
+        this.colors = this.aa_colors;
+    }
+
+    this.canvas_width = 1000;
+
+    var letter = null,
+        probs_arr = null,
+        loptions = null,
+        cc = null;
+
+    if (this.alphabet === 'aa') {
+        probs_arr = this.data.probs_arr;
+        if (probs_arr) {
+            cc = new ConsensusColors();
+            this.cmap = cc.color_map(probs_arr);
+        }
+    }
+
+    //build the letter canvases
+    this.letters = {};
+
+    for (letter in this.colors) {
+        if (this.colors.hasOwnProperty(letter)) {
+            loptions = {color: this.colors[letter]};
+            this.letters[letter] = new Letter(letter, loptions);
+        }
+    }
+
+    // this needs to be set to null here so that we can initialise it after
+    // the render function has fired and the width determined.
+    this.scrollme = null;
+
+    this.previous_target = 0;
+    // keeps track of which canvas elements have been drawn and which ones haven't.
+    this.rendered = [];
+    this.previous_zoom = 0;
+
+    function draw_box(context, x, y, width, height, color,border) {
+        color = color || "rgba(100,100,100, 0.2)";
+        border = border || "rgba(100,100,100, 0.8)";
+        context.fillStyle = color;
+        context.strokeStyle = border;
+        context.fillRect(x, y, width, height);
+        context.strokeRect(x, y, width, height);
+    }
+    function draw_small_insert(context, x, y, col_width, in_odds, in_length, del_odds, show_inserts) {
+        var fill = "#ffffff";
+        if (show_inserts) {
+            if (in_odds > 0.1) {
+                fill = '#d7301f';
+            } else if (in_odds > 0.05) {
+                fill = '#fc8d59';
+            } else if (in_odds > 0.03) {
+                fill = '#fdcc8a';
+            }
+            context.fillStyle = fill;
+            context.fillRect(x, y + 15, col_width, 10);
+
+            fill = "#ffffff";
+            // draw insert length
+            if (in_length > 9) {
+                fill = '#d7301f';
+            } else if (in_length > 7) {
+                fill = '#fc8d59';
+            } else if (in_length > 4) {
+                fill = '#fdcc8a';
+            }
+            context.fillStyle = fill;
+            context.fillRect(x, y + 30, col_width, 10);
+        } else {
+            y  = y + 30;
+        }
+
+        fill = "#ffffff";
+        // draw delete odds
+        if (del_odds < 0.75) {
+            fill = '#2171b5';
+        } else if (del_odds < 0.85) {
+            fill = '#6baed6';
+        } else if (del_odds < 0.95) {
+            fill = '#bdd7e7';
+        }
+        context.fillStyle = fill;
+        context.fillRect(x, y, col_width, 10);
+    }
+
+    function draw_border(context, y, width) {
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(width, y);
+        context.lineWidth = 1;
+        context.strokeStyle = "#999999";
+        context.stroke();
+    }
+
+    function draw_ticks(context, x, y, height, color) {
+        color = color || '#999999';
+        context.beginPath();
+        context.moveTo(x, y);
+        context.lineTo(x, y + height);
+        context.lineWidth = 1;
+        context.strokeStyle = color;
+        context.stroke();
+    }
+
+    function draw_rect_with_text(context, x, y, text, fontsize, col_width, fill, textfill) {
+        context.font = fontsize + "px Arial";
+        context.fillStyle = fill;
+        context.fillRect(x, y - 10, col_width, 14);
+        context.textAlign = "center";
+        context.fillStyle = textfill;
+        context.fillText(text, x + (col_width / 2), y);
+    }
+
+    function draw_insert_odds(context, x, height, col_width, text, fontsize) {
+        var y        = height - 20,
+            fill     = '#ffffff',
+            textfill = '#555555';
+
+        if (text > 0.1) {
+            fill     = '#d7301f';
+            textfill = '#ffffff';
+        } else if (text > 0.05) {
+            fill = '#fc8d59';
+        } else if (text > 0.03) {
+            fill = '#fdcc8a';
+        }
+
+        draw_rect_with_text(context, x, y, text, fontsize, col_width, fill, textfill);
+
+        //draw vertical line to indicate where the insert would occur
+        if (text > 0.03) {
+            draw_ticks(context, x + col_width, height - 30, -30 - height, fill);
+        }
+    }
+
+    function draw_insert_length(context, x, y, col_width, text, fontsize) {
+        var fill = '#ffffff',
+            textfill = '#555555';
+
+        if (text > 9) {
+            fill     = '#d7301f';
+            textfill = '#ffffff';
+        } else if (text > 7) {
+            fill = '#fc8d59';
+        } else if (text > 4) {
+            fill = '#fdcc8a';
+        }
+        draw_rect_with_text(context, x, y, text, fontsize, col_width, fill, textfill);
+    }
+
+    function draw_delete_odds(context, x, height, col_width, text, fontsize, show_inserts) {
+        var y        = height - 4,
+            fill     = '#ffffff',
+            textfill = '#555555';
+
+        if (show_inserts) {
+            y = height - 35;
+        }
+
+        if (text < 0.75) {
+            fill     = '#2171b5';
+            textfill = '#ffffff';
+        } else if (text < 0.85) {
+            fill = '#6baed6';
+        } else if (text < 0.95) {
+            fill = '#bdd7e7';
+        }
+
+        draw_rect_with_text(context, x, y, text, fontsize, col_width, fill, textfill);
+    }
+
+
+    function draw_column_number(context, x, y, col_width, col_num, fontsize, right) {
+        context.font = fontsize + "px Arial";
+        context.textAlign = right ? "right" : "center";
+        context.fillStyle = "#666666";
+        context.fillText(col_num, x + (col_width / 2), y);
+    }
+
+
+    function attach_canvas(DOMid, height, width, id, canv_width) {
+        var canvas = $(DOMid).find('#canv_' + id);
+
+        if (!canvas.length) {
+            $(DOMid).append('<canvas class="canvas_logo" id="canv_' + id + '"  height="' + height + '" width="' + width + '" style="left:' + canv_width * id + 'px"></canvas>');
+            canvas = $(DOMid).find('#canv_' + id);
+        }
+
+        $(canvas).attr('width', width).attr('height', height);
+
+        if (!canvasSupport()) {
+            canvas[0] = G_vmlCanvasManager.initElement(canvas[0]);
+        }
+
+        return canvas[0];
+    }
+
+    // the main render function that draws the logo based on the provided options.
+    this.render = function (options) {
+        if (!this.data) {
+            return;
+        }
+        options    = options || {};
+        var zoom   = options.zoom || this.zoom,
+            target = options.target || 1,
+            scaled = options.scaled || null,
+            parent_width = $(this.dom_element).parent().width(),
+            max_canvas_width = 1,
+            end = null,
+            start = null,
+            i = 0;
+
+        if (target === this.previous_target) {
+            return;
+        }
+
+        this.previous_target = target;
+
+
+        if (options.start) {
+            this.start = options.start;
+        }
+        if (options.end) {
+            this.end = options.end;
+        }
+
+        if (zoom <= 0.1) {
+            zoom = 0.1;
+        } else if (zoom >= 1) {
+            zoom = 1;
+        }
+
+        this.zoom = zoom;
+
+        end = this.end || this.data.height_arr.length;
+        start = this.start || 1;
+        end     = (end > this.data.height_arr.length) ? this.data.height_arr.length : end;
+        end     = (end < start) ? start : end;
+
+        start     = (start > end) ? end : start;
+        start     = (start > 1) ? start : 1;
+
+        this.y = this.height - 20;
+        // Check to see if the logo will fit on the screen at full zoom.
+        this.max_width = this.column_width * ((end - start) + 1);
+        // If it fits then zoom out and disable zooming.
+        if (parent_width > this.max_width) {
+            zoom = 1;
+            this.zoom_enabled = false;
+        }
+        this.zoom = zoom;
+
+        this.zoomed_column = this.column_width * zoom;
+        this.total_width = this.zoomed_column * ((end - start) + 1);
+
+        // If zoom is not maxed and we still aren't filling the window
+        // then ramp up the zoom level until it fits, then disable zooming.
+        // Then we get a decent logo with out needing to zoom in or out.
+        if (zoom < 1) {
+            while (this.total_width < parent_width) {
+                this.zoom += 0.1;
+                this.zoomed_column = this.column_width * this.zoom;
+                this.total_width = this.zoomed_column * ((end - start) + 1);
+                this.zoom_enabled = false;
+                if (zoom >= 1) {
+                    break;
+                }
+            }
+        }
+
+        if (target > this.total_width) {
+            target = this.total_width;
+        }
+        $(this.dom_element).attr({'width': this.total_width + 'px'}).css({width: this.total_width + 'px'});
+
+        var canvas_count = Math.ceil(this.total_width / this.canvas_width);
+        this.columns_per_canvas = Math.ceil(this.canvas_width / this.zoomed_column);
+
+
+        if (this.previous_zoom !== this.zoom) {
+            $(this.dom_element).find('canvas').remove();
+            this.previous_zoom = this.zoom;
+            this.rendered = [];
+        }
+
+        this.canvases = [];
+        this.contexts = [];
+
+
+        for (i = 0; i < canvas_count; i++) {
+
+            var split_start = (this.columns_per_canvas * i) + start,
+                split_end   = split_start + this.columns_per_canvas - 1;
+            if (split_end > end) {
+                split_end = end;
+            }
+
+            var adjusted_width = ((split_end - split_start) + 1) * this.zoomed_column;
+
+            if (adjusted_width > max_canvas_width) {
+                max_canvas_width = adjusted_width;
+            }
+
+            var canv_start = max_canvas_width * i,
+                canv_end = canv_start + adjusted_width;
+
+            if (target < canv_end + (canv_end / 2) && target > canv_start - (canv_start / 2)) {
+                // Check that we aren't redrawing the canvas and if not, then attach it and draw.
+                if (this.rendered[i] !== 1) {
+
+                    this.canvases[i] = attach_canvas(this.dom_element, this.height, adjusted_width, i, max_canvas_width);
+                    this.contexts[i] = this.canvases[i].getContext('2d');
+                    this.contexts[i].setTransform(1, 0, 0, 1, 0, 0);
+                    this.contexts[i].clearRect(0, 0, adjusted_width, this.height);
+                    this.contexts[i].fillStyle = "#ffffff";
+                    this.contexts[i].fillRect(0, 0, canv_end, this.height);
+
+
+                    if (this.zoomed_column > 12) {
+                        var fontsize = parseInt(10 * zoom, 10);
+                        fontsize = (fontsize > 10) ? 10 : fontsize;
+                        if (this.debug) {
+                            this.render_with_rects(split_start, split_end, i, 1);
+                        }
+                        this.render_with_text(split_start, split_end, i, fontsize);
+                    } else {
+                        this.render_with_rects(split_start, split_end, i);
+                    }
+                    if (this.show_active_sites && this.active_sites_adder!=null) {
+                        this.active_sites_adder.setDrawingOptions({
+                            margin_to_features: margin_to_features,
+                            padding_between_tracks: padding_between_tracks,
+                            feature_height: feature_height
+                        });
+                        this.active_sites_adder.panel.paint(i, split_start, split_end);
+                    }
+                    this.rendered[i] = 1;
+
+                }
+            }
+
+        }
+
+        // check if the scroller object has been initialised and if not then do so.
+        // we do this here as opposed to at object creation, because we need to
+        // make sure the logo has been rendered and the width is correct, otherwise
+        // we get a weird initial state where the canvas will bounce back to the
+        // beginning the first time it is scrolled, because it thinks it has a
+        // width of 0.
+        if (!this.scrollme) {
+            if (canvasSupport()) {
+                this.scrollme = new EasyScroller($(this.dom_element)[0], {
+                    scrollingX: 1,
+                    scrollingY: 0,
+                    eventTarget: this.called_on
+                });
+            }
+        }
+
+        if (target !== 1 && canvasSupport()) {
+            this.scrollme.reflow();
+        }
+        return;
+    };
+
+    this.render_x_axis_label = function () {
+        var label = "Model Position";
+        if (this.display_ali_map) {
+            label = "Alignment Column";
+        }
+        $(this.called_on).find('.logo_xaxis').remove();
+        $(this.called_on).prepend('<div class="logo_xaxis" class="centered" style="margin-left:40px"><p class="xaxis_text" style="width:10em;margin:1em auto">' + label + '</p></div>');
+    };
+
+    this.render_y_axis_label = function () {
+        //attach a canvas for the y-axis
+        $(this.dom_element).parent().before('<canvas class="logo_yaxis" height="302" width="55" draggable="true"></canvas>');
+        this.paint_y_axis_label();
+    };
+
+    this.paint_y_axis_label = function () {
+        var canvas = $(this.called_on).find('.logo_yaxis'),
+            context,
+            moveTitle=0;
+        if (!canvasSupport()) {
+            canvas[0] = G_vmlCanvasManager.initElement(canvas[0]);
+        }
+        context = canvas[0].getContext('2d');
+
+        var axis_label = "Information Content (bits)";
+        context.clearRect(0, 0, 55, 300);
+
+
+        //draw min/max tick marks
+        context.beginPath();
+        context.moveTo(55, 1);
+        context.lineTo(40, 1);
+
+        context.moveTo(55, this.info_content_height);
+        context.lineTo(40, this.info_content_height);
+
+
+        context.moveTo(55, (this.info_content_height / 2));
+        context.lineTo(40, (this.info_content_height / 2));
+        context.lineWidth = 1;
+        context.strokeStyle = "#666666";
+        context.stroke();
+
+        //draw the label text
+        context.fillStyle = "#666666";
+        context.textAlign = "right";
+        context.font = "bold 10px Arial";
+
+        // draw the max label
+        context.textBaseline = "top";
+        context.fillText(parseFloat(this.data.max_height).toFixed(1), 38, 0);
+        context.textBaseline = "middle";
+
+        // draw the midpoint labels
+        context.fillText(parseFloat(this.data.max_height / 2).toFixed(1), 38, (this.info_content_height / 2));
+        // draw the min label
+        context.fillText('0', 38, this.info_content_height);
+
+        if (this.show_active_sites && this.active_sites_adder!=null) {
+            this.active_sites_adder.panel.paintLabels(context);
+            moveTitle=40;
+        }
+
+        // draw the axis label
+        if (this.data.height_calc === 'score') {
+            axis_label = "Score (bits)";
+        }
+
+        context.save();
+        context.translate(5, this.height / 2 - 20 + moveTitle);
+        context.rotate(-Math.PI / 2);
+        context.textAlign = "center";
+        context.font = "normal 12px Arial";
+        context.fillText(axis_label, 1, 0);
+        context.restore();
+
+        // draw the insert row labels
+        context.fillText('occupancy', 55, this.info_content_height + 7);
+        if (this.show_inserts) {
+            context.fillText('ins. prob.', 50, 280);
+            context.fillText('ins. len.', 46, 296);
+        }
+
+    };
+
+    this.render_2nd_y_axis_label = function () {
+        //attach a canvas for the y-axis
+        $(this.dom_element).parent().after('<canvas id ="second_y_axis" class="second_yaxis" height="302" width="55" draggable="true"></canvas>');
+        var canvas = $(this.called_on).find('.second_yaxis'),
+            top_pix_height = 0,
+            bottom_pix_height = 0,
+            top_height = Math.abs(this.data.max_height),
+            bottom_height = (isNaN(this.data.min_height_obs)) ? 0 : parseInt(this.data.min_height_obs, 10),
+            context = null,
+            axis_label = "Information Content (bits)";
+        if (!canvasSupport()) {
+            canvas[0] = G_vmlCanvasManager.initElement(canvas[0]);
+        }
+
+        return canvas[0];
+    };
+
+    this.render_with_text = function (start, end, context_num, fontsize) {
+        var x = 0,
+            column_num = start,
+            column_label = null,
+            i = 0,
+            top_height = Math.abs(this.data.max_height),
+            bottom_height = (isNaN(this.data.min_height_obs)) ? 0 : parseInt(this.data.min_height_obs, 10),
+            total_height = top_height + Math.abs(bottom_height),
+            top_percentage    = Math.round((Math.abs(this.data.max_height) * 100) / total_height),
+        //convert % to pixels
+            top_pix_height = Math.round((this.info_content_height * top_percentage) / 100),
+            bottom_pix_height = this.info_content_height - top_pix_height,
+        // this is used to transform the 256px high letters into the correct size
+        // when displaying negative values, so that they fit above the 0 line.
+            top_pix_conversion = top_pix_height / this.info_content_height,
+            bottom_pix_conversion = bottom_pix_height / this.info_content_height;
+
+        // add 3 extra columns so that numbers don't get clipped at the end of a canvas
+        // that ends before a large column. DF0000830 was suffering at zoom level 0.6,
+        // column 2215. This adds a little extra overhead, but is the easiest fix for now.
+        if (end + 3 <= this.end) {
+            end += 3;
+        }
+
+        for (i = start; i <= end; i++) {
+            if (this.data.mmline && this.data.mmline[i - 1] === 1) {
+                this.contexts[context_num].fillStyle = '#cccccc';
+                this.contexts[context_num].fillRect(x, 10, this.zoomed_column, this.height - 40);
+            } else {
+                var column = this.data.height_arr[i - 1],
+                    col_positions = [];
+                if (column) {
+                    var previous_height = 0,
+                        letters = column.length,
+                        previous_neg_height = top_pix_height,
+                        j = 0,
+                        color = null;
+                    if (i==this.column_clicked){
+                        this.contexts[context_num].fillStyle = '#ffdede';
+                        this.contexts[context_num].fillRect(x, 0, this.zoomed_column, this.height);
+                        this.contexts[context_num].strokeStyle = '#ff8888';
+                        this.contexts[context_num].strokeRect(x, 0, this.zoomed_column, this.height);
+                    }
+                    if (i==this.column_hover){
+                        this.contexts[context_num].fillStyle = '#ffeeee';
+                        this.contexts[context_num].fillRect(x, 0, this.zoomed_column, this.height);
+                    }
+
+                    for (j = 0; j < letters; j++) {
+                        var letter = column[j],
+                            values = letter.split(':', 2),
+                            x_pos = x + (this.zoomed_column / 2),
+                            letter_height = null;
+
+                        // we don't render anything with a value between 0 and 0.01. These
+                        // letters would be too small to be meaningful on any scale, so we
+                        // just squash them out.
+                        if (values[1] > 0.01) {
+                            letter_height = parseFloat(values[1]) / this.data.max_height;
+                            var y_pos = (this.info_content_height - 2) - previous_height,
+                                glyph_height = (this.info_content_height - 2) * letter_height;
+
+                            // The positioning in IE is off, so we need to modify the y_pos when
+                            // canvas is not supported and we are using VML instead.
+                            if (!canvasSupport()) {
+                                y_pos = y_pos + (glyph_height * (letter_height / 2));
+                            }
+
+                            col_positions[j] = [glyph_height, this.zoomed_column, x_pos, y_pos];
+                            previous_height = previous_height + glyph_height;
+                        }
+                    }
+
+                    // render the letters in reverse order so that the larger letters on the top
+                    // don't clobber the smaller letters below them.
+                    for (j = letters; j >= 0; j--) {
+                        if (col_positions[j] && this.letters[column[j][0]]) {
+                            if (this.colorscheme === 'consensus') {
+                                color = this.cmap[i - 1][column[j][0]] || "#7a7a7a";
+                            } else {
+                                color = null;
+                            }
+                            this.letters[column[j][0]].draw(this.contexts[context_num], col_positions[j][0], col_positions[j][1], col_positions[j][2], col_positions[j][3], color);
+                        }
+                    }
+                }
+            }
+
+
+            // if ali_coordinates exist and toggle is set then display the
+            // alignment coordinates and not the model coordinates.
+            if (this.display_ali_map) {
+                column_label = this.data.ali_map[i - 1];
+            } else {
+                column_label = column_num;
+            }
+
+            if (this.zoom < 0.7) {
+                if (i % 5 === 0) {
+                    this.draw_column_divider({
+                        context_num : context_num,
+                        x : x,
+                        fontsize: 10,
+                        column_num: column_label,
+                        ralign: true
+                    });
+                }
+            } else {
+                this.draw_column_divider({
+                    context_num : context_num,
+                    x : x,
+                    fontsize: fontsize,
+                    column_num: column_label
+                });
+            }
+
+            draw_delete_odds(this.contexts[context_num], x, this.height, this.zoomed_column, this.data.delete_probs[i - 1], fontsize, this.show_inserts);
+            //draw insert length ticks
+            draw_ticks(this.contexts[context_num], x, this.height - 15, 5);
+            if (this.show_inserts) {
+                draw_insert_odds(this.contexts[context_num], x, this.height, this.zoomed_column, this.data.insert_probs[i - 1], fontsize);
+                draw_insert_length(this.contexts[context_num], x, this.height - 5, this.zoomed_column, this.data.insert_lengths[i - 1], fontsize);
+
+                // draw delete probability ticks
+                draw_ticks(this.contexts[context_num], x, this.height - 45, 5);
+                // draw insert probability ticks
+                draw_ticks(this.contexts[context_num], x, this.height - 30, 5);
+            }
+
+
+            x += this.zoomed_column;
+            column_num++;
+
+        }
+
+        // draw other dividers
+        if (this.show_inserts) {
+            draw_border(this.contexts[context_num], this.height - 30, this.total_width);
+            draw_border(this.contexts[context_num], this.height - 45, this.total_width);
+        }
+        draw_border(this.contexts[context_num], this.height - 15, this.total_width);
+        draw_border(this.contexts[context_num], 0, this.total_width);
+    };
+
+    this.draw_column_divider = function (opts) {
+        var div_x = opts.ralign ? opts.x + this.zoomed_column : opts.x,
+            num_x = opts.ralign ? opts.x + 2 : opts.x;
+        // draw column dividers
+        draw_ticks(this.contexts[opts.context_num], div_x, this.height - 30, -30 - this.height, '#dddddd');
+        // draw top ticks
+        draw_ticks(this.contexts[opts.context_num], div_x, 0, 5);
+        // draw column numbers
+        draw_column_number(this.contexts[opts.context_num], num_x, 10, this.zoomed_column, opts.column_num, opts.fontsize, opts.ralign);
+    };
+
+    this.render_with_rects = function (start, end, context_num, borders) {
+        var x = 0,
+            column_num = start,
+            column_label = null,
+            i = 0,
+            top_height = Math.abs(this.data.max_height),
+            bottom_height = Math.abs(this.data.min_height_obs),
+            total_height = top_height + bottom_height,
+            top_percentage    = Math.round((Math.abs(this.data.max_height) * 100) / total_height),
+        //convert % to pixels
+            top_pix_height = Math.round((this.info_content_height * top_percentage) / 100),
+            bottom_pix_height = this.info_content_height - top_pix_height,
+            mod = 10;
+
+        for (i = start; i <= end; i++) {
+            if (this.data.mmline && this.data.mmline[i - 1] === 1) {
+                this.contexts[context_num].fillStyle = '#cccccc';
+                this.contexts[context_num].fillRect(x, 10, this.zoomed_column, this.height - 40);
+            } else {
+                var column = this.data.height_arr[i - 1],
+                    previous_height = 0,
+                    previous_neg_height = top_pix_height,
+                    letters = column.length,
+                    j = 0;
+                for (j = 0; j < letters; j++) {
+                    var letter = column[j],
+                        values = letter.split(':', 2);
+                    if (values[1] > 0.01) {
+                        var letter_height = parseFloat(values[1]) / this.data.max_height,
+                            x_pos = x,
+                            glyph_height = (this.info_content_height - 2) * letter_height,
+                            y_pos = (this.info_content_height - 2) - previous_height - glyph_height,
+                            color = null;
+
+                        if(this.colorscheme === 'consensus') {
+                            color = this.cmap[i - 1][values[0]] || "#7a7a7a";
+                        } else {
+                            color = this.colors[values[0]];
+                        }
+
+                        if (borders) {
+                            this.contexts[context_num].strokeStyle = color;
+                            this.contexts[context_num].strokeRect(x_pos, y_pos, this.zoomed_column, glyph_height);
+                        } else {
+                            this.contexts[context_num].fillStyle = color;
+                            this.contexts[context_num].fillRect(x_pos, y_pos, this.zoomed_column, glyph_height);
+                        }
+
+                        previous_height = previous_height + glyph_height;
+                    }
+                }
+            }
+
+
+            if (this.zoom < 0.2) {
+                mod = 20;
+            } else if (this.zoom < 0.3) {
+                mod = 10;
+            }
+
+            if (i % mod === 0) {
+                // draw column dividers
+                draw_ticks(this.contexts[context_num], x + this.zoomed_column, this.height - 30, parseFloat(this.height), '#dddddd');
+                // draw top ticks
+                draw_ticks(this.contexts[context_num], x + this.zoomed_column, 0, 5);
+
+                // if ali_coordinates exist and toggle is set then display the
+                // alignment coordinates and not the model coordinates.
+                if (this.display_ali_map) {
+                    column_label = this.data.ali_map[i - 1];
+                } else {
+                    column_label = column_num;
+                }
+                // draw column numbers
+                draw_column_number(this.contexts[context_num], x - 2,  10, this.zoomed_column, column_label, 10, true);
+            }
+
+
+            // draw insert probabilities/lengths
+            draw_small_insert(
+                this.contexts[context_num],
+                x,
+                this.height - 42,
+                this.zoomed_column,
+                this.data.insert_probs[i - 1],
+                this.data.insert_lengths[i - 1],
+                this.data.delete_probs[i - 1],
+                this.show_inserts
+            );
+
+            // draw other dividers
+            if (this.show_inserts) {
+                draw_border(this.contexts[context_num], this.height - 45, this.total_width);
+            } else {
+                draw_border(this.contexts[context_num], this.height - 15, this.total_width);
+            }
+
+            draw_border(this.contexts[context_num], 0, this.total_width);
+
+            x += this.zoomed_column;
+            column_num++;
+        }
+
+    };
+
+    this.toggle_colorscheme = function (scheme) {
+        // work out the current column we are on so we can return there
+        var col_total = this.current_column();
+
+        if (scheme) {
+            if (scheme === 'default') {
+                this.colorscheme = 'default';
+            } else {
+                this.colorscheme = 'consensus';
+            }
+        } else {
+            if (this.colorscheme === 'default') {
+                this.colorscheme = 'consensus';
+            } else {
+                this.colorscheme = 'default';
+            }
+        }
+
+        this.refresh();
+
+    };
+
+    this.toggle_scale = function (scale) {
+        // work out the current column we are on so we can return there
+        var col_total = this.current_column();
+
+        if (scale) {
+            if (scale === 'obs') {
+                this.data.max_height = this.data.max_height_obs;
+            } else {
+                this.data.max_height = this.data.max_height_theory;
+            }
+        } else {
+            // toggle the max height
+            if (this.data.max_height === this.data.max_height_obs) {
+                this.data.max_height = this.data.max_height_theory;
+            } else {
+                this.data.max_height = this.data.max_height_obs;
+            }
+        }
+        //update the y-axis
+        $(this.called_on).find('.logo_yaxis').remove();
+        this.render_y_axis_label();
+
+        this.refresh();
+    };
+
+    this.toggle_ali_map = function (coords) {
+        // work out the current column we are on so we can return there
+        var col_total = this.current_column();
+
+        if (coords) {
+            if (coords === 'model') {
+                this.display_ali_map = 0;
+            } else {
+                this.display_ali_map = 1;
+            }
+        } else {
+            // toggle the max height
+            if (this.display_ali_map === 1) {
+                this.display_ali_map = 0;
+            } else {
+                this.display_ali_map = 1;
+            }
+        }
+        this.render_x_axis_label();
+
+        this.refresh();
+
+    };
+
+    this.current_column = function () {
+        var before_left = this.scrollme.scroller.getValues().left,
+            col_width = (this.column_width * this.zoom),
+            col_count = before_left / col_width,
+            half_visible_columns = ($(this.called_on).find('.logo_container').width() / col_width) / 2,
+            col_total = Math.ceil(col_count + half_visible_columns);
+        return col_total;
+    };
+
+    this.change_zoom = function (options) {
+        var zoom_level = 0.3,
+            expected_width = null;
+        if (options.target) {
+            zoom_level = options.target;
+        } else if (options.distance) {
+            zoom_level = (parseFloat(this.zoom) - parseFloat(options.distance)).toFixed(1);
+            if (options.direction === '+') {
+                zoom_level = (parseFloat(this.zoom) + parseFloat(options.distance)).toFixed(1);
+            }
+        }
+
+        if (zoom_level > 1) {
+            zoom_level = 1;
+        } else if (zoom_level < 0.1) {
+            zoom_level = 0.1;
+        }
+
+        // see if we need to zoom or not
+        expected_width = ($(this.called_on).find('.logo_graphic').width() * zoom_level) / this.zoom;
+        if (expected_width > $(this.called_on).find('.logo_container').width()) {
+            // if a center is not specified, then use the current center of the view
+            if (!options.column) {
+                //work out my current position
+                var col_total = this.current_column();
+
+                this.zoom = zoom_level;
+                this.render({zoom: this.zoom});
+                this.scrollme.reflow();
+
+                //scroll to previous position
+                this.scrollToColumn(col_total);
+            } else { // center around the mouse click position.
+                this.zoom = zoom_level;
+                this.render({zoom: this.zoom});
+                this.scrollme.reflow();
+
+                var coords = this.coordinatesFromColumn(options.column);
+                this.scrollme.scroller.scrollTo(coords - options.offset);
+            }
+        }
+        return this.zoom;
+    };
+
+    this.columnFromCoordinates = function (x) {
+        var column = Math.ceil(x / (this.column_width * this.zoom));
+        return column;
+    };
+
+    this.coordinatesFromColumn = function (col) {
+        var new_column = col - 1,
+            x = (new_column  * (this.column_width * this.zoom)) + ((this.column_width * this.zoom) / 2);
+        return x;
+    };
+
+    this.scrollToColumn = function (num, animate) {
+        var half_view = ($(this.called_on).find('.logo_container').width() / 2),
+            new_left = this.coordinatesFromColumn(num);
+        this.scrollme.scroller.scrollTo(new_left - half_view, 0, animate);
+    };
+    this.refresh = function(){
+        this.rendered = [];
+        this.scrollme.reflow();
+        this.scrollToColumn(this.current_column()+1);
+        this.scrollToColumn(this.current_column()-1);
+    };
+
+}
+
+if (typeof module != "undefined")
+    module.exports = HMMLogo;
+},{"./canvas_support.js":5,"./consensus_colors.js":6,"./letter.js":8}],8:[function(require,module,exports){
+function Letter(letter, options) {
+    options = options || {};
+    this.value = letter;
+    this.width = parseInt(options.width, 10) || 100;
+
+    //W is 30% wider than the other letters, so need to make sure
+    //it gets modified accordingly.
+    if (this.value === 'W') {
+        this.width += (this.width * 30) / 100;
+    }
+
+    this.height = parseInt(options.height, 10) || 100;
+
+    this.color = options.color || '#000000';
+    // if the height and width are changed from the default, then
+    // this will also need to be changed as it cant be calculated
+    // dynamically.
+    this.fontSize = options.fontSize || 138;
+
+    this.scaled = function () { };
+
+    this.draw = function (ext_ctx, target_height, target_width, x, y, color) {
+        var h_ratio = target_height / this.height,
+            w_ratio = target_width / this.width,
+            prev_font = ext_ctx.font;
+        ext_ctx.transform(w_ratio, 0, 0, h_ratio, x, y);
+        ext_ctx.fillStyle = color || this.color;
+        ext_ctx.textAlign = "center";
+        ext_ctx.font = "bold " + this.fontSize + "px Arial";
+
+        ext_ctx.fillText(this.value, 0, 0);
+        //restore the canvas settings
+        ext_ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ext_ctx.fillStyle = '#000000';
+        ext_ctx.font = prev_font;
+    };
+
+}
+
+if (typeof module != "undefined")
+    module.exports = Letter;
+},{}],9:[function(require,module,exports){
+/*jslint browser:true */
+/*global G_vmlCanvasManager, EasyScroller */
 /** @license
  * HMM logo
  * https://github.com/Janelia-Farm-Xfam/hmm_logo_js
@@ -212,22 +2150,395 @@
  * Licensed under the MIT License.
  * https://github.com/Janelia-Farm-Xfam/hmm_logo_js/blob/master/LICENSE.txt
  */
-!function(a){"use strict";function b(){if(!f){var a=document.createElement("canvas");f=!(!a.getContext||!a.getContext("2d"))}return f}function c(a,b){b=b||{},this.value=a,this.width=parseInt(b.width,10)||100,"W"===this.value&&(this.width+=30*this.width/100),this.height=parseInt(b.height,10)||100,this.color=b.color||"#000000",this.fontSize=b.fontSize||138,this.scaled=function(){},this.draw=function(a,b,c,d,e,f){var g=b/this.height,h=c/this.width,i=a.font;a.transform(h,0,0,g,d,e),a.fillStyle=f||this.color,a.textAlign="center",a.font="bold "+this.fontSize+"px Arial",a.fillText(this.value,0,0),a.setTransform(1,0,0,1,0,0),a.fillStyle="#000000",a.font=i}}function d(){function a(a,b){var c=".",d=0,e=null,f=null,g=null,h={".":20,h:11,"+":3,"-":2,o:2,p:2};for(e in b)b.hasOwnProperty(e)&&b[e]>=a&&(f=h[e]||1,g=h[c]||1,g>f?(c=e,d=b[e]):f===g&&b[e]>d&&(c=e,d=b[e]));return c}this.grey="#7a7a7a",this.check_PG=function(a,b,c){return c[a].P="#ffff11",c[a].G="#ff7f11",1},this.check_R=function(a,b,c){c[a].R=this.grey;var d="#FF9999",e=["Q","K","R"],f=0;for(f=0;f<e.length;f++)if(b[.85][a]===e[f])return c[a].R=d,1;return"+"===b["0.60"][a]||"R"===b["0.60"][a]||"K"===b["0.60"][a]?(c[a].R=d,1):1},this.check_Q=function(a,b,c){c[a].Q=this.grey;var d="#99FF99",e=["Q","T","K","R"],f=0;if("b"===b["0.50"][a]||"E"===b["0.50"][a]||"Q"===b["0.50"][a])return c[a].Q=d,1;for(f=0;f<e.length;f++)if(b[.85][a]===e[f])return c[a].Q=d,1;return"+"===b["0.60"][a]||"K"===b["0.60"][a]||"R"===b["0.50"][a]?(c[a].Q=d,1):1},this.check_N=function(a,b,c){c[a].N=this.grey;var d="#99FF99";return"N"===b["0.50"][a]?(c[a].N=d,1):"D"===b[.85][a]?(c[a].N=d,1):1},this.check_K=function(a,b,c){c[a].K=this.grey;var d="#FF9999",e=["K","R","Q"],f=0;if("+"===b["0.60"][a]||"R"===b["0.60"][a]||"K"===b["0.60"][a])return c[a].K=d,1;for(f=0;f<e.length;f++)if(b[.85][a]===e[f])return c[a].K=d,1;return 1},this.check_E=function(a,b,c){c[a].E=this.grey;var d="#FF9999",e=["D","E"],f=0;if("+"===b["0.60"][a]||"R"===b["0.60"][a]||"K"===b["0.60"][a])return c[a].E=d,1;for(f=0;f<e.length;f++)if(b[.85][a]===e[f])return c[a].E=d,1;return"b"===b["0.50"][a]||"E"===b["0.50"][a]||"Q"===b["0.50"][a]?(c[a].E=d,1):1},this.check_D=function(a,b,c){c[a].D=this.grey;var d="#FF9999",e=["D","E","N"],f=0;if("+"===b["0.60"][a]||"R"===b["0.60"][a]||"K"===b["0.60"][a])return c[a].D=d,1;for(f=0;f<e.length;f++)if(b[.85][a]===e[f])return c[a].D=d,1;return"-"===b["0.50"][a]||"E"===b["0.60"][a]||"D"===b["0.60"][a]?(c[a].D=d,1):1},this.check_ACFILMVW=function(a,b,c){var d=["A","C","F","L","I","M","V","W"],e=["A","C","F","H","I","L","M","V","W","Y","P","Q","h"],f=0,g=0;for(f=0;f<d.length;f++)for(c[a][d[f]]=this.grey,g=0;g<e.length;g++)b["0.60"][a]===e[g]&&(c[a][d[f]]="#9999FF");return 1},this.check_ST=function(a,b,c){c[a].S=this.grey,c[a].T=this.grey;var d=["A","C","F","H","I","L","M","V","W","Y","P","Q"],e=0;if("a"===b["0.50"][a]||"S"===b["0.50"][a]||"T"===b["0.50"][a])return c[a].S="#99FF99",c[a].T="#99FF99",1;for(e=0;e<d.length;e++)if(b[.85][a]===d[e])return c[a].S="#99FF99",c[a].T="#99FF99",1},this.check_HY=function(a,b,c){c[a].H=this.grey,c[a].Y=this.grey;var d=["A","C","F","H","I","L","M","V","W","Y","P","Q","h"],e=0,f="#99FFFF";if("h"===b["0.60"][a])return c[a].H=f,c[a].Y=f,1;for(e=0;e<d.length;e++)if(b[.85][a]===d[e])return c[a].H=f,c[a].Y=f,1;return 1},this.color_map=function(b){var c=["0.50","0.60","0.80","0.85"],d={W:1,L:1,V:1,I:1,M:1,A:1,F:1,C:1,Y:1,H:1,P:1},e={Q:1,N:1},f={K:1,R:1,H:1},g={S:1,T:1},h={E:1,D:1},i={},j=[],k=0,l=0,m=0,n=0,o=[],p=null,q={},r=null,s=null;for(l=0;l<b.length;l++)for(p=b[l],m=0;m<c.length;m++){for(s=c[m],q={p:0,o:0,"-":0,"+":0,h:0},n=0;n<p.length;n++)o=[],o=p[n].split(":"),q[o[0]]=parseFloat(o[1],10),e[o[0]]?q.p=q.p+parseFloat(o[1],10):g[o[0]]?q.o=q.o+parseFloat(o[1],10):h[o[0]]?q["-"]=q["-"]+parseFloat(o[1],10):(f[o[0]]&&(q["+"]=q["+"]+parseFloat(o[1],10)),d[o[0]]&&(q.h=q.h+parseFloat(o[1],10)));r=a(s,q),i[s]||(i[s]=[]),i[s].push(r)}for(k=0;k<b.length;k++)j[k]={},this.check_D(k,i,j),this.check_R(k,i,j),this.check_Q(k,i,j),this.check_N(k,i,j),this.check_K(k,i,j),this.check_E(k,i,j),this.check_HY(k,i,j),this.check_ACFILMVW(k,i,j),this.check_ST(k,i,j),this.check_PG(k,i,j);return j}}function e(e){function f(a,b,c,d,e,f,g,h){var i="#ffffff";h?(e>.1?i="#d7301f":e>.05?i="#fc8d59":e>.03&&(i="#fdcc8a"),a.fillStyle=i,a.fillRect(b,c+15,d,10),i="#ffffff",f>9?i="#d7301f":f>7?i="#fc8d59":f>4&&(i="#fdcc8a"),a.fillStyle=i,a.fillRect(b,c+30,d,10)):c+=30,i="#ffffff",.75>g?i="#2171b5":.85>g?i="#6baed6":.95>g&&(i="#bdd7e7"),a.fillStyle=i,a.fillRect(b,c,d,10)}function g(a,b,c){a.beginPath(),a.moveTo(0,b),a.lineTo(c,b),a.lineWidth=1,a.strokeStyle="#999999",a.stroke()}function h(a,b,c,d,e){e=e||"#999999",a.beginPath(),a.moveTo(b,c),a.lineTo(b,c+d),a.lineWidth=1,a.strokeStyle=e,a.stroke()}function i(a,b,c,d,e,f,g,h){a.font=e+"px Arial",a.fillStyle=g,a.fillRect(b,c-10,f,14),a.textAlign="center",a.fillStyle=h,a.fillText(d,b+f/2,c)}function j(a,b,c,d,e,f){var g=c-20,j="#ffffff",k="#555555";e>.1?(j="#d7301f",k="#ffffff"):e>.05?j="#fc8d59":e>.03&&(j="#fdcc8a"),i(a,b,g,e,f,d,j,k),e>.03&&h(a,b+d,c-30,-30-c,j)}function k(a,b,c,d,e,f){var g="#ffffff",h="#555555";e>9?(g="#d7301f",h="#ffffff"):e>7?g="#fc8d59":e>4&&(g="#fdcc8a"),i(a,b,c,e,f,d,g,h)}function l(a,b,c,d,e,f,g){var h=c-4,j="#ffffff",k="#555555";g&&(h=c-35),.75>e?(j="#2171b5",k="#ffffff"):.85>e?j="#6baed6":.95>e&&(j="#bdd7e7"),i(a,b,h,e,f,d,j,k)}function m(a,b,c,d,e,f,g){a.font=f+"px Arial",a.textAlign=g?"right":"center",a.fillStyle="#666666",a.fillText(e,b+d/2,c)}function n(c,d,e,f,g){var h=a(c).find("#canv_"+f);return h.length||(a(c).append('<canvas class="canvas_logo" id="canv_'+f+'"  height="'+d+'" width="'+e+'" style="left:'+g*f+'px"></canvas>'),h=a(c).find("#canv_"+f)),a(h).attr("width",e).attr("height",d),b()||(h[0]=G_vmlCanvasManager.initElement(h[0])),h[0]}e=e||{},this.column_width=e.column_width||34,this.height=e.height||300,this.data=e.data||null,this.debug=e.debug||null,this.scale_height_enabled=e.height_toggle||null,this.zoom_enabled=e.zoom_buttons&&"disabled"===e.zoom_buttons?null:!0,this.colorscheme=e.colorscheme||"default",this.display_ali_map=0,this.alphabet=e.data.alphabet||"dna",this.dom_element=e.dom_element||a("body"),this.called_on=e.called_on||null,this.start=e.start||1,this.end=e.end||this.data.height_arr.length,this.zoom=parseFloat(e.zoom)||.4,this.default_zoom=this.zoom,this.data.processing&&/^observed|weighted/.test(this.data.processing)?(this.show_inserts=0,this.info_content_height=286):(this.show_inserts=1,this.info_content_height=256),this.data.max_height=e.scaled_max?e.data.max_height_obs||this.data.max_height||2:e.data.max_height_theory||this.data.max_height||2,this.dna_colors={A:"#cbf751",C:"#5ec0cc",G:"#ffdf59",T:"#b51f16",U:"#b51f16"},this.aa_colors={A:"#FF9966",C:"#009999",D:"#FF0000",E:"#CC0033",F:"#00FF00",G:"#f2f20c",H:"#660033",I:"#CC9933",K:"#663300",L:"#FF9933",M:"#CC99CC",N:"#336666",P:"#0099FF",Q:"#6666CC",R:"#990000",S:"#0000FF",T:"#00FFFF",V:"#FFCC33",W:"#66CC66",Y:"#006600"},this.colors=this.dna_colors,"aa"===this.alphabet&&(this.colors=this.aa_colors),this.canvas_width=5e3;var o=null,p=null,q=null,r=null;"aa"===this.alphabet&&(p=this.data.probs_arr,p&&(r=new d,this.cmap=r.color_map(p))),this.letters={};for(o in this.colors)this.colors.hasOwnProperty(o)&&(q={color:this.colors[o]},this.letters[o]=new c(o,q));this.scrollme=null,this.previous_target=0,this.rendered=[],this.previous_zoom=0,this.render=function(c){if(this.data){c=c||{};var d=c.zoom||this.zoom,e=c.target||1,f=(c.scaled||null,a(this.dom_element).parent().width()),g=1,h=null,i=null,j=0;if(e!==this.previous_target){if(this.previous_target=e,c.start&&(this.start=c.start),c.end&&(this.end=c.end),.1>=d?d=.1:d>=1&&(d=1),this.zoom=d,h=this.end||this.data.height_arr.length,i=this.start||1,h=h>this.data.height_arr.length?this.data.height_arr.length:h,h=i>h?i:h,i=i>h?h:i,i=i>1?i:1,this.y=this.height-20,this.max_width=this.column_width*(h-i+1),f>this.max_width&&(d=1,this.zoom_enabled=!1),this.zoom=d,this.zoomed_column=this.column_width*d,this.total_width=this.zoomed_column*(h-i+1),1>d)for(;this.total_width<f&&(this.zoom+=.1,this.zoomed_column=this.column_width*this.zoom,this.total_width=this.zoomed_column*(h-i+1),this.zoom_enabled=!1,!(d>=1)););e>this.total_width&&(e=this.total_width),a(this.dom_element).attr({width:this.total_width+"px"}).css({width:this.total_width+"px"});var k=Math.ceil(this.total_width/this.canvas_width);for(this.columns_per_canvas=Math.ceil(this.canvas_width/this.zoomed_column),this.previous_zoom!==this.zoom&&(a(this.dom_element).find("canvas").remove(),this.previous_zoom=this.zoom,this.rendered=[]),this.canvases=[],this.contexts=[],j=0;k>j;j++){var l=this.columns_per_canvas*j+i,m=l+this.columns_per_canvas-1;m>h&&(m=h);var o=(m-l+1)*this.zoomed_column;o>g&&(g=o);var p=g*j,q=p+o;if(q+q/2>e&&e>p-p/2&&1!==this.rendered[j]){if(this.canvases[j]=n(this.dom_element,this.height,o,j,g),this.contexts[j]=this.canvases[j].getContext("2d"),this.contexts[j].setTransform(1,0,0,1,0,0),this.contexts[j].clearRect(0,0,o,this.height),this.contexts[j].fillStyle="#ffffff",this.contexts[j].fillRect(0,0,q,this.height),this.zoomed_column>12){var r=parseInt(10*d,10);r=r>10?10:r,this.debug&&this.render_with_rects(l,m,j,1),this.render_with_text(l,m,j,r)}else this.render_with_rects(l,m,j);this.rendered[j]=1}}this.scrollme||b()&&(this.scrollme=new EasyScroller(a(this.dom_element)[0],{scrollingX:1,scrollingY:0,eventTarget:this.called_on})),1!==e&&b()&&this.scrollme.reflow()}}},this.render_x_axis_label=function(){var b="Model Position";this.display_ali_map&&(b="Alignment Column"),a(this.called_on).find(".logo_xaxis").remove(),a(this.called_on).prepend('<div class="logo_xaxis" class="centered" style="margin-left:40px"><p class="xaxis_text" style="width:10em;margin:1em auto">'+b+"</p></div>")},this.render_y_axis_label=function(){a(this.dom_element).parent().before('<canvas class="logo_yaxis" height="300" width="55"></canvas>');var c=a(this.called_on).find(".logo_yaxis"),d=(Math.abs(this.data.max_height),isNaN(this.data.min_height_obs)?0:parseInt(this.data.min_height_obs,10),null),e="Information Content (bits)";b()||(c[0]=G_vmlCanvasManager.initElement(c[0])),d=c[0].getContext("2d"),d.beginPath(),d.moveTo(55,1),d.lineTo(40,1),d.moveTo(55,this.info_content_height),d.lineTo(40,this.info_content_height),d.moveTo(55,this.info_content_height/2),d.lineTo(40,this.info_content_height/2),d.lineWidth=1,d.strokeStyle="#666666",d.stroke(),d.fillStyle="#666666",d.textAlign="right",d.font="bold 10px Arial",d.textBaseline="top",d.fillText(parseFloat(this.data.max_height).toFixed(1),38,0),d.textBaseline="middle",d.fillText(parseFloat(this.data.max_height/2).toFixed(1),38,this.info_content_height/2),d.fillText("0",38,this.info_content_height),"score"===this.data.height_calc&&(e="Score (bits)"),d.save(),d.translate(5,this.height/2-20),d.rotate(-Math.PI/2),d.textAlign="center",d.font="normal 12px Arial",d.fillText(e,1,0),d.restore(),d.fillText("occupancy",55,this.info_content_height+7),this.show_inserts&&(d.fillText("ins. prob.",50,280),d.fillText("ins. len.",46,296))},this.render_x_axis_label(),this.render_y_axis_label(),this.render_with_text=function(a,c,d,e){{var f=0,i=a,m=null,n=0,o=Math.abs(this.data.max_height),p=isNaN(this.data.min_height_obs)?0:parseInt(this.data.min_height_obs,10),q=o+Math.abs(p),r=Math.round(100*Math.abs(this.data.max_height)/q),s=Math.round(this.info_content_height*r/100),t=this.info_content_height-s;s/this.info_content_height,t/this.info_content_height}for(c+3<=this.end&&(c+=3),n=a;c>=n;n++){if(this.data.mmline&&1===this.data.mmline[n-1])this.contexts[d].fillStyle="#cccccc",this.contexts[d].fillRect(f,10,this.zoomed_column,this.height-40);else{var u=this.data.height_arr[n-1],v=[];if(u){var w=0,x=u.length,y=0,z=null;for(y=0;x>y;y++){var A=u[y],B=A.split(":",2),C=f+this.zoomed_column/2,D=null;if(B[1]>.01){D=parseFloat(B[1])/this.data.max_height;var E=this.info_content_height-2-w,F=(this.info_content_height-2)*D;b()||(E+=F*(D/2)),v[y]=[F,this.zoomed_column,C,E],w+=F}}for(y=x;y>=0;y--)v[y]&&this.letters[u[y][0]]&&(z="consensus"===this.colorscheme?this.cmap[n-1][u[y][0]]||"#7a7a7a":null,this.letters[u[y][0]].draw(this.contexts[d],v[y][0],v[y][1],v[y][2],v[y][3],z))}}m=this.display_ali_map?this.data.ali_map[n-1]:i,this.zoom<.7?n%5===0&&this.draw_column_divider({context_num:d,x:f,fontsize:10,column_num:m,ralign:!0}):this.draw_column_divider({context_num:d,x:f,fontsize:e,column_num:m}),l(this.contexts[d],f,this.height,this.zoomed_column,this.data.delete_probs[n-1],e,this.show_inserts),h(this.contexts[d],f,this.height-15,5),this.show_inserts&&(j(this.contexts[d],f,this.height,this.zoomed_column,this.data.insert_probs[n-1],e),k(this.contexts[d],f,this.height-5,this.zoomed_column,this.data.insert_lengths[n-1],e),h(this.contexts[d],f,this.height-45,5),h(this.contexts[d],f,this.height-30,5)),f+=this.zoomed_column,i++}this.show_inserts&&(g(this.contexts[d],this.height-30,this.total_width),g(this.contexts[d],this.height-45,this.total_width)),g(this.contexts[d],this.height-15,this.total_width),g(this.contexts[d],0,this.total_width)},this.draw_column_divider=function(a){var b=a.ralign?a.x+this.zoomed_column:a.x,c=a.ralign?a.x+2:a.x;h(this.contexts[a.context_num],b,this.height-30,-30-this.height,"#dddddd"),h(this.contexts[a.context_num],b,0,5),m(this.contexts[a.context_num],c,10,this.zoomed_column,a.column_num,a.fontsize,a.ralign)},this.render_with_rects=function(a,b,c,d){var e=0,i=a,j=null,k=0,l=Math.abs(this.data.max_height),n=Math.abs(this.data.min_height_obs),o=l+n,p=Math.round(100*Math.abs(this.data.max_height)/o),q=Math.round(this.info_content_height*p/100),r=(this.info_content_height-q,10);for(k=a;b>=k;k++){if(this.data.mmline&&1===this.data.mmline[k-1])this.contexts[c].fillStyle="#cccccc",this.contexts[c].fillRect(e,10,this.zoomed_column,this.height-40);else{var s=this.data.height_arr[k-1],t=0,u=s.length,v=0;for(v=0;u>v;v++){var w=s[v],x=w.split(":",2);if(x[1]>.01){var y=parseFloat(x[1])/this.data.max_height,z=e,A=(this.info_content_height-2)*y,B=this.info_content_height-2-t-A,C=null;C="consensus"===this.colorscheme?this.cmap[k-1][x[0]]||"#7a7a7a":this.colors[x[0]],d?(this.contexts[c].strokeStyle=C,this.contexts[c].strokeRect(z,B,this.zoomed_column,A)):(this.contexts[c].fillStyle=C,this.contexts[c].fillRect(z,B,this.zoomed_column,A)),t+=A}}}this.zoom<.2?r=20:this.zoom<.3&&(r=10),k%r===0&&(h(this.contexts[c],e+this.zoomed_column,this.height-30,parseFloat(this.height),"#dddddd"),h(this.contexts[c],e+this.zoomed_column,0,5),j=this.display_ali_map?this.data.ali_map[k-1]:i,m(this.contexts[c],e-2,10,this.zoomed_column,j,10,!0)),f(this.contexts[c],e,this.height-42,this.zoomed_column,this.data.insert_probs[k-1],this.data.insert_lengths[k-1],this.data.delete_probs[k-1],this.show_inserts),this.show_inserts?g(this.contexts[c],this.height-45,this.total_width):g(this.contexts[c],this.height-15,this.total_width),g(this.contexts[c],0,this.total_width),e+=this.zoomed_column,i++}},this.toggle_colorscheme=function(a){var b=this.current_column();this.colorscheme=a?"default"===a?"default":"consensus":"default"===this.colorscheme?"consensus":"default",this.rendered=[],this.scrollme.reflow(),this.scrollToColumn(b+1),this.scrollToColumn(b)},this.toggle_scale=function(b){var c=this.current_column();this.data.max_height=b?"obs"===b?this.data.max_height_obs:this.data.max_height_theory:this.data.max_height===this.data.max_height_obs?this.data.max_height_theory:this.data.max_height_obs,this.rendered=[],a(this.called_on).find(".logo_yaxis").remove(),this.render_y_axis_label(),this.scrollme.reflow(),this.scrollToColumn(c+1),this.scrollToColumn(c)},this.toggle_ali_map=function(a){var b=this.current_column();this.display_ali_map=a?"model"===a?0:1:1===this.display_ali_map?0:1,this.render_x_axis_label(),this.rendered=[],this.scrollme.reflow(),this.scrollToColumn(b+1),this.scrollToColumn(b)},this.current_column=function(){var b=this.scrollme.scroller.getValues().left,c=this.column_width*this.zoom,d=b/c,e=a(this.called_on).find(".logo_container").width()/c/2,f=Math.ceil(d+e);return f},this.change_zoom=function(b){var c=.3,d=null;if(b.target?c=b.target:b.distance&&(c=(parseFloat(this.zoom)-parseFloat(b.distance)).toFixed(1),"+"===b.direction&&(c=(parseFloat(this.zoom)+parseFloat(b.distance)).toFixed(1))),c>1?c=1:.1>c&&(c=.1),d=a(this.called_on).find(".logo_graphic").width()*c/this.zoom,d>a(this.called_on).find(".logo_container").width())if(b.column){this.zoom=c,this.render({zoom:this.zoom}),this.scrollme.reflow();var e=this.coordinatesFromColumn(b.column);this.scrollme.scroller.scrollTo(e-b.offset)}else{var f=this.current_column();this.zoom=c,this.render({zoom:this.zoom}),this.scrollme.reflow(),this.scrollToColumn(f)}return this.zoom},this.columnFromCoordinates=function(a){var b=Math.ceil(a/(this.column_width*this.zoom));return b},this.coordinatesFromColumn=function(a){var b=a-1,c=b*this.column_width*this.zoom+this.column_width*this.zoom/2;return c},this.scrollToColumn=function(b,c){var d=a(this.called_on).find(".logo_container").width()/2,e=this.coordinatesFromColumn(b);this.scrollme.scroller.scrollTo(e-d,0,c)}}var f=null;a.fn.hmm_logo=function(c){var d=null,f=a('<div class="logo_graphic">');if(b()){if(c=c||{},a(this).append(a('<div class="logo_container">').append(f).append('<div class="logo_divider">')),c.data=a(this).data("logo"),null===c.data)return;c.dom_element=f,c.called_on=this;var g=c.zoom||.4,h=a('<form class="logo_form"><fieldset><label for="position">Column number</label><input type="text" name="position" class="logo_position"></input><button class="button logo_change">Go</button></fieldset></form>'),i=a('<div class="logo_controls">'),j=a('<div class="logo_settings">');if(j.append('<span class="close">x</span>'),d=new e(c),d.render(c),d.zoom_enabled&&i.append('<button class="logo_zoomout button">-</button><button class="logo_zoomin button">+</button>'),d.scale_height_enabled&&d.data.max_height_obs<d.data.max_height_theory){var k="",l="",m="",n="";d.data.max_height_obs===d.data.max_height?k="checked":l="checked",c.help&&(n='<a class="help" href="/help#scale_obs" title="Set the y-axis maximum to the maximum observed height."><span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>',m='<a class="help" href="/help#scale_theory" title="Set the y-axis maximum to the theoretical maximum height"><span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>');var o='<fieldset><legend>Scale</legend><label><input type="radio" name="scale" class="logo_scale" value="obs" '+k+"/>Maximum Observed "+n+'</label></br><label><input type="radio" name="scale" class="logo_scale" value="theory" '+l+"/>Maximum Theoretical "+m+"</label></fieldset>";j.append(o)}if("score"!==d.data.height_calc&&"aa"===d.data.alphabet&&d.data.probs_arr){var p=null,q=null,r="",s="";"default"===d.colorscheme?p="checked":q="checked",c.help&&(r='<a class="help" href="/help#colors_default" title="Each letter receives its own color."><span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>',s='<a class="help" href="/help#colors_consensus" title="Letters are colored as in Clustalx and Jalview, with colors depending on composition of the column."><span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>');var t='<fieldset><legend>Color Scheme</legend><label><input type="radio" name="color" class="logo_color" value="default" '+p+"/>Default "+r+'</label></br><label><input type="radio" name="color" class="logo_color" value="consensus" '+q+"/>Consensus Colors "+s+"</label></fieldset>";j.append(t)}if(d.data.ali_map){var u=null,v=null,w="",x="";0===d.display_ali_map?u="checked":v="checked",c.help&&(w='<a class="help" href="/help#coords_model" title="The coordinates along the top of the plot show the model position."><span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>',x='<a class="help" href="/help#coords_ali" title="The coordinates along the top of the plot show the column in the alignment associated with the model"><span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>');var y='<fieldset><legend>Coordinates</legend><label><input type="radio" name="coords" class="logo_ali_map" value="model" '+u+"/>Model "+w+'</label></br><label><input type="radio" name="coords" class="logo_ali_map" value="alignment" '+v+"/>Alignment "+x+"</label></fieldset>";j.append(y)}j.children().length>0&&(i.append('<button class="logo_settings_switch button">Settings</button>'),i.append(j)),h.append(i),a(this).append(h),a(this).find(".logo_settings_switch, .logo_settings .close").bind("click",function(b){b.preventDefault(),a(".logo_settings").toggle()}),a(this).find(".logo_reset").bind("click",function(a){a.preventDefault();var b=d;b.change_zoom({target:b.default_zoom})}),a(this).find(".logo_change").bind("click",function(a){a.preventDefault()}),a(this).find(".logo_zoomin").bind("click",function(a){a.preventDefault();var b=d;b.change_zoom({distance:.1,direction:"+"})}),a(this).find(".logo_zoomout").bind("click",function(a){a.preventDefault();var b=d;b.change_zoom({distance:.1,direction:"-"})}),a(this).find(".logo_scale").bind("change",function(){var a=d;a.toggle_scale(this.value)}),a(this).find(".logo_color").bind("change",function(){var a=d;a.toggle_colorscheme(this.value)}),a(this).find(".logo_ali_map").bind("change",function(){var a=d;a.toggle_ali_map(this.value)}),a(this).find(".logo_position").bind("change",function(){var a=d;this.value.match(/^\d+$/m)&&a.scrollToColumn(this.value,1)}),f.bind("dblclick",function(b){var c=d,e=a(this).offset(),f=parseInt(b.pageX-e.left,10),g=b.pageX-a(this).parent().offset().left,h=c.columnFromCoordinates(f),i=c.zoom;c.change_zoom(1>i?{target:1,offset:g,column:h}:{target:.3,offset:g,column:h})}),c.column_info&&f.bind("click",function(b){var e=d,f=a('<table class="logo_col_info"></table>'),g="<tr>",h="",i=a(this).offset(),j=parseInt(b.pageX-i.left,10),k=(b.pageX-a(this).parent().offset().left,e.columnFromCoordinates(j)),l=[],m=0,n=0,o=0,p="Probability";for(d.data.height_calc&&"score"===d.data.height_calc?(p="Score",l=d.data.height_arr[k-1].slice(0).reverse()):l=d.data.probs_arr[k-1].slice(0).reverse(),m=Math.ceil(l.length/5),n=0;m>n;n++)g+=m>1&&m-1>n?'<th>Residue</th><th class="odd">'+p+"</th>":"<th>Residue</th><th>"+p+"</th>";for(g+="</tr>",f.append(a(g)),n=0;5>n;n++){for(h+="<tr>",o=n;l[o];){var q=l[o].split(":",2),r="";"default"===d.colorscheme&&(r=d.alphabet+"_"+q[0]),h+=m>1&&15>o?'<td class="'+r+'"><div></div>'+q[0]+'</td><td class="odd">'+q[1]+"</td>":'<td class="'+r+'"><div></div>'+q[0]+"</td><td>"+q[1]+"</td>",o+=5}h+="</tr>"}f.append(a(h)),a(c.column_info).empty().append(a("<p> Column:"+k+"</p><div><p>Occupancy: "+d.data.delete_probs[k-1]+"</p><p>Insert Probability: "+d.data.insert_probs[k-1]+"</p><p>Insert Length: "+d.data.insert_lengths[k-1]+"</p></div>")).append(f).show()}),a(document).bind(this.attr("id")+".scrolledTo",function(a,b){var c=d;c.render({target:b})}),a(document).keydown(function(a){a.ctrlKey||((61===a.which||107===a.which)&&(g+=.1,d.change_zoom({distance:.1,direction:"+"})),(109===a.which||0===a.which)&&(g-=.1,d.change_zoom({distance:.1,direction:"-"})))})}else a("#logo").replaceWith(a("#no_canvas").html());return d}}(jQuery),/** @license
- * Scroller
- * http://github.com/zynga/scroller
- *
- * Copyright 2011, Zynga Inc.
- * Licensed under the MIT License.
- * https://raw.github.com/zynga/scroller/master/MIT-LICENSE.txt
- *
- * Based on the work of: Unify Project (unify-project.org)
- * http://unify-project.org
- * Copyright 2011, Deutsche Telekom AG
- * License: MIT + Apache (V2)
- *
- * Inspired by: https://github.com/inexorabletash/raf-shim/blob/master/raf.js
- */
-function(a){if(!a.requestAnimationFrame){var b=Date.now||function(){return+new Date},c=Object.keys||function(a){var b={};for(var c in a)b[c]=!0;return b},d=Object.empty||function(a){for(var b in a)return!1;return!0},e="RequestAnimationFrame",f=function(){for(var b="webkit,moz,o,ms".split(","),c=0;4>c;c++)if(null!=a[b[c]+e])return b[c]}();if(f)return a.requestAnimationFrame=a[f+e],void(a.cancelRequestAnimationFrame=a[f+"Cancel"+e]);var g=60,h={},i=1,j=null;a.requestAnimationFrame=function(a){var d=i++;return h[d]=a,null===j&&(j=setTimeout(function(){var a=b(),d=h,e=c(d);h={},j=null;for(var f=0,g=e.length;g>f;f++)d[e[f]](a)},1e3/g)),d},a.cancelRequestAnimationFrame=function(a){delete h[a],d(h)&&(clearTimeout(j),j=null)}}}(this),function(a){var b=Date.now||function(){return+new Date},c=60,d=1e3,e={},f=1;a.core?core.effect||(core.effect={}):a.core={effect:{}},core.effect.Animate={stop:function(a){var b=null!=e[a];return b&&(e[a]=null),b},isRunning:function(a){return null!=e[a]},start:function(a,g,h,i,j,k){var l=b(),m=l,n=0,o=0,p=f++;if(k||(k=document.body),p%20===0){var q={};for(var r in e)q[r]=!0;e=q}var s=function(f){var q=f!==!0,r=b();if(!e[p]||g&&!g(p))return e[p]=null,void(h&&h(c-o/((r-l)/d),p,!1));if(q)for(var t=Math.round((r-m)/(d/c))-1,u=0;u<Math.min(t,4);u++)s(!0),o++;i&&(n=(r-l)/i,n>1&&(n=1));var v=j?j(n):n;a(v,r,q)!==!1&&1!==n||!q?q&&(m=r,requestAnimationFrame(s,k)):(e[p]=null,h&&h(c-o/((r-l)/d),p,1===n||null==i))};return e[p]=!0,requestAnimationFrame(s,k),p}}}(this);var EasyScroller=function(a,b){this.content=a,this.container=a.parentNode,this.options=b||{};var c=this;this.scroller=new Scroller(function(a,b,d){c.render(a,b,d)},b),this.bindEvents(),this.content.style[EasyScroller.vendorPrefix+"TransformOrigin"]="left top",this.reflow()};EasyScroller.prototype.render=function(){var a,b=document.documentElement.style;window.opera&&"[object Opera]"===Object.prototype.toString.call(opera)?a="presto":"MozAppearance"in b?a="gecko":"WebkitAppearance"in b?a="webkit":"string"==typeof navigator.cpuClass&&(a="trident");var c,d=EasyScroller.vendorPrefix={trident:"ms",gecko:"Moz",webkit:"Webkit",presto:"O"}[a],e=document.createElement("div"),f=d+"Perspective",g=d+"Transform";return e.style[f]!==c?function(a,b,c){this.content.style[g]="translate3d("+-a+"px,"+-b+"px,0) scale("+c+")"}:e.style[g]!==c?function(a,b,c){this.content.style[g]="translate("+-a+"px,"+-b+"px) scale("+c+")"}:function(a,b,c){this.content.style.marginLeft=a?-a/c+"px":"",this.content.style.marginTop=b?-b/c+"px":"",this.content.style.zoom=c||""}}(),EasyScroller.prototype.reflow=function(){this.scroller.setDimensions(this.container.clientWidth,this.container.clientHeight,this.content.offsetWidth,this.content.offsetHeight);var a=this.container.getBoundingClientRect();this.scroller.setPosition(a.left+this.container.clientLeft,a.top+this.container.clientTop)},EasyScroller.prototype.bindEvents=function(){var a=this;if($(window).bind("resize",function(){a.reflow()}),$("#modelTab").bind("click",function(){a.reflow()}),"ontouchstart"in window)this.container.addEventListener("touchstart",function(b){b.touches[0]&&b.touches[0].target&&b.touches[0].target.tagName.match(/input|textarea|select/i)||(a.scroller.doTouchStart(b.touches,(new Date).getTime()),b.preventDefault())},!1),document.addEventListener("touchmove",function(b){a.scroller.doTouchMove(b.touches,(new Date).getTime(),b.scale)},!1),document.addEventListener("touchend",function(){a.scroller.doTouchEnd((new Date).getTime())},!1),document.addEventListener("touchcancel",function(){a.scroller.doTouchEnd((new Date).getTime())},!1);else{var b=!1;$(this.container).bind("mousedown",function(c){c.target.tagName.match(/input|textarea|select/i)||(a.scroller.doTouchStart([{pageX:c.pageX,pageY:c.pageY}],(new Date).getTime()),b=!0,c.preventDefault())}),$(document).bind("mousemove",function(c){b&&(a.scroller.doTouchMove([{pageX:c.pageX,pageY:c.pageY}],(new Date).getTime()),b=!0)}),$(document).bind("mouseup",function(){b&&(a.scroller.doTouchEnd((new Date).getTime()),b=!1)}),$(this.container).bind("mousewheel",function(b){a.options.zooming&&(a.scroller.doMouseZoom(b.wheelDelta,(new Date).getTime(),b.pageX,b.pageY),b.preventDefault())})}};var Scroller;!function(){Scroller=function(a,b){this.__callback=a,this.options={scrollingX:!0,scrollingY:!0,animating:!0,bouncing:!0,locking:!0,paging:!1,snapping:!1,zooming:!1,minZoom:.5,maxZoom:3,eventTarget:null};for(var c in b)this.options[c]=b[c]};var a=function(a){return Math.pow(a-1,3)+1},b=function(a){return(a/=.5)<1?.5*Math.pow(a,3):.5*(Math.pow(a-2,3)+2)},c={__isSingleTouch:!1,__isTracking:!1,__isGesturing:!1,__isDragging:!1,__isDecelerating:!1,__isAnimating:!1,__clientLeft:0,__clientTop:0,__clientWidth:0,__clientHeight:0,__contentWidth:0,__contentHeight:0,__snapWidth:100,__snapHeight:100,__refreshHeight:null,__refreshActive:!1,__refreshActivate:null,__refreshDeactivate:null,__refreshStart:null,__zoomLevel:1,__scrollLeft:0,__scrollTop:0,__maxScrollLeft:0,__maxScrollTop:0,__scheduledLeft:0,__scheduledTop:0,__scheduledZoom:0,__lastTouchLeft:null,__lastTouchTop:null,__lastTouchMove:null,__positions:null,__minDecelerationScrollLeft:null,__minDecelerationScrollTop:null,__maxDecelerationScrollLeft:null,__maxDecelerationScrollTop:null,__decelerationVelocityX:null,__decelerationVelocityY:null,setDimensions:function(a,b,c,d){var e=this;a&&(e.__clientWidth=a),b&&(e.__clientHeight=b),c&&(e.__contentWidth=c),d&&(e.__contentHeight=d),e.__computeScrollMax(),e.scrollTo(e.__scrollLeft,e.__scrollTop,!0)},setPosition:function(a,b){var c=this;c.__clientLeft=a||0,c.__clientTop=b||0},setSnapSize:function(a,b){var c=this;c.__snapWidth=a,c.__snapHeight=b},activatePullToRefresh:function(a,b,c,d){var e=this;e.__refreshHeight=a,e.__refreshActivate=b,e.__refreshDeactivate=c,e.__refreshStart=d},finishPullToRefresh:function(){var a=this;a.__refreshActive=!1,a.__refreshDeactivate&&a.__refreshDeactivate(),a.scrollTo(a.__scrollLeft,a.__scrollTop,!0)},getValues:function(){var a=this;return{left:a.__scrollLeft,top:a.__scrollTop,zoom:a.__zoomLevel}},getScrollMax:function(){var a=this;return{left:a.__maxScrollLeft,top:a.__maxScrollTop}},zoomTo:function(a,b,c,d){var e=this;if(!e.options.zooming)throw new Error("Zooming is not enabled!");e.__isDecelerating&&(core.effect.Animate.stop(e.__isDecelerating),e.__isDecelerating=!1);var f=e.__zoomLevel;null==c&&(c=e.__clientWidth/2),null==d&&(d=e.__clientHeight/2),a=Math.max(Math.min(a,e.options.maxZoom),e.options.minZoom),e.__computeScrollMax(a);var g=(c+e.__scrollLeft)*a/f-c,h=(d+e.__scrollTop)*a/f-d;g>e.__maxScrollLeft?g=e.__maxScrollLeft:0>g&&(g=0),h>e.__maxScrollTop?h=e.__maxScrollTop:0>h&&(h=0),e.__publish(g,h,a,b)},zoomBy:function(a,b,c,d){var e=this;e.zoomTo(e.__zoomLevel*a,b,c,d)},scrollTo:function(a,b,c,d){$(document).trigger(this.options.eventTarget.attr("id")+".scrolledTo",[a,b,d]);var e=this;if(e.__isDecelerating&&(core.effect.Animate.stop(e.__isDecelerating),e.__isDecelerating=!1),null!=d&&d!==e.__zoomLevel){if(!e.options.zooming)throw new Error("Zooming is not enabled!");a*=d,b*=d,e.__computeScrollMax(d)}else d=e.__zoomLevel;e.options.scrollingX?e.options.paging?a=Math.round(a/e.__clientWidth)*e.__clientWidth:e.options.snapping&&(a=Math.round(a/e.__snapWidth)*e.__snapWidth):a=e.__scrollLeft,e.options.scrollingY?e.options.paging?b=Math.round(b/e.__clientHeight)*e.__clientHeight:e.options.snapping&&(b=Math.round(b/e.__snapHeight)*e.__snapHeight):b=e.__scrollTop,a=Math.max(Math.min(e.__maxScrollLeft,a),0),b=Math.max(Math.min(e.__maxScrollTop,b),0),a===e.__scrollLeft&&b===e.__scrollTop&&(c=!1),e.__publish(a,b,d,c)},scrollBy:function(a,b,c){var d=this,e=d.__isAnimating?d.__scheduledLeft:d.__scrollLeft,f=d.__isAnimating?d.__scheduledTop:d.__scrollTop;d.scrollTo(e+(a||0),f+(b||0),c)},doMouseZoom:function(a,b,c,d){var e=this,f=a>0?.97:1.03;return e.zoomTo(e.__zoomLevel*f,!1,c-e.__clientLeft,d-e.__clientTop)},doTouchStart:function(a,b){if(null==a.length)throw new Error("Invalid touch list: "+a);if(b instanceof Date&&(b=b.valueOf()),"number"!=typeof b)throw new Error("Invalid timestamp value: "+b);var c=this;c.__isDecelerating&&(core.effect.Animate.stop(c.__isDecelerating),c.__isDecelerating=!1),c.__isAnimating&&(core.effect.Animate.stop(c.__isAnimating),c.__isAnimating=!1);var d,e,f=1===a.length;f?(d=a[0].pageX,e=a[0].pageY):(d=Math.abs(a[0].pageX+a[1].pageX)/2,e=Math.abs(a[0].pageY+a[1].pageY)/2),c.__initialTouchLeft=d,c.__initialTouchTop=e,c.__zoomLevelStart=c.__zoomLevel,c.__lastTouchLeft=d,c.__lastTouchTop=e,c.__lastTouchMove=b,c.__lastScale=1,c.__enableScrollX=!f&&c.options.scrollingX,c.__enableScrollY=!f&&c.options.scrollingY,c.__isTracking=!0,c.__isDragging=!f,c.__isSingleTouch=f,c.__positions=[]},doTouchMove:function(a,b,c){if(null==a.length)throw new Error("Invalid touch list: "+a);if(b instanceof Date&&(b=b.valueOf()),"number"!=typeof b)throw new Error("Invalid timestamp value: "+b);var d=this;if(d.__isTracking){var e,f;2===a.length?(e=Math.abs(a[0].pageX+a[1].pageX)/2,f=Math.abs(a[0].pageY+a[1].pageY)/2):(e=a[0].pageX,f=a[0].pageY);var g=d.__positions;if(d.__isDragging){var h=e-d.__lastTouchLeft,i=f-d.__lastTouchTop,j=d.__scrollLeft,k=d.__scrollTop,l=d.__zoomLevel;if(null!=c&&d.options.zooming){var m=l;if(l=l/d.__lastScale*c,l=Math.max(Math.min(l,d.options.maxZoom),d.options.minZoom),m!==l){var n=e-d.__clientLeft,o=f-d.__clientTop;j=(n+j)*l/m-n,k=(o+k)*l/m-o,d.__computeScrollMax(l)}}if(d.__enableScrollX){j-=h;var p=d.__maxScrollLeft;(j>p||0>j)&&(d.options.bouncing?j+=h/2:j=j>p?p:0)}if(d.__enableScrollY){k-=i;var q=d.__maxScrollTop;(k>q||0>k)&&(d.options.bouncing?(k+=i/2,d.__enableScrollX||null==d.__refreshHeight||(!d.__refreshActive&&k<=-d.__refreshHeight?(d.__refreshActive=!0,d.__refreshActivate&&d.__refreshActivate()):d.__refreshActive&&k>-d.__refreshHeight&&(d.__refreshActive=!1,d.__refreshDeactivate&&d.__refreshDeactivate()))):k=k>q?q:0)}g.length>60&&g.splice(0,30),g.push(j,k,b),d.__publish(j,k,l)}else{var r=d.options.locking?3:0,s=5,t=Math.abs(e-d.__initialTouchLeft),u=Math.abs(f-d.__initialTouchTop);d.__enableScrollX=d.options.scrollingX&&t>=r,d.__enableScrollY=d.options.scrollingY&&u>=r,g.push(d.__scrollLeft,d.__scrollTop,b),d.__isDragging=(d.__enableScrollX||d.__enableScrollY)&&(t>=s||u>=s)}d.__lastTouchLeft=e,d.__lastTouchTop=f,d.__lastTouchMove=b,d.__lastScale=c}},doTouchEnd:function(a){if(a instanceof Date&&(a=a.valueOf()),"number"!=typeof a)throw new Error("Invalid timestamp value: "+a);var b=this;if(b.__isTracking){if(b.__isTracking=!1,b.__isDragging&&(b.__isDragging=!1,b.__isSingleTouch&&b.options.animating&&a-b.__lastTouchMove<=100)){for(var c=b.__positions,d=c.length-1,e=d,f=d;f>0&&c[f]>b.__lastTouchMove-100;f-=3)e=f;if(e!==d){var g=c[d]-c[e],h=b.__scrollLeft-c[e-2],i=b.__scrollTop-c[e-1];b.__decelerationVelocityX=h/g*(1e3/60),b.__decelerationVelocityY=i/g*(1e3/60);var j=b.options.paging||b.options.snapping?4:1;(Math.abs(b.__decelerationVelocityX)>j||Math.abs(b.__decelerationVelocityY)>j)&&(b.__refreshActive||b.__startDeceleration(a))}}b.__isDecelerating||(b.__refreshActive&&b.__refreshStart?(b.__publish(b.__scrollLeft,-b.__refreshHeight,b.__zoomLevel,!0),b.__refreshStart&&b.__refreshStart()):(b.scrollTo(b.__scrollLeft,b.__scrollTop,!0,b.__zoomLevel),b.__refreshActive&&(b.__refreshActive=!1,b.__refreshDeactivate&&b.__refreshDeactivate()))),b.__positions.length=0}},__publish:function(c,d,e,f){var g=this,h=g.__isAnimating;if(h&&(core.effect.Animate.stop(h),g.__isAnimating=!1),f&&g.options.animating){g.__scheduledLeft=c,g.__scheduledTop=d,g.__scheduledZoom=e;var i=g.__scrollLeft,j=g.__scrollTop,k=g.__zoomLevel,l=c-i,m=d-j,n=e-k,o=function(a,b,c){c&&(g.__scrollLeft=i+l*a,g.__scrollTop=j+m*a,g.__zoomLevel=k+n*a,g.__callback&&g.__callback(g.__scrollLeft,g.__scrollTop,g.__zoomLevel))},p=function(a){return g.__isAnimating===a},q=function(a,b){b===g.__isAnimating&&(g.__isAnimating=!1),g.options.zooming&&g.__computeScrollMax()};g.__isAnimating=core.effect.Animate.start(o,p,q,250,h?a:b)}else g.__scheduledLeft=g.__scrollLeft=c,g.__scheduledTop=g.__scrollTop=d,g.__scheduledZoom=g.__zoomLevel=e,g.__callback&&g.__callback(c,d,e),g.options.zooming&&g.__computeScrollMax()},__computeScrollMax:function(a){var b=this;null==a&&(a=b.__zoomLevel),b.__maxScrollLeft=Math.max(b.__contentWidth*a-b.__clientWidth,0),b.__maxScrollTop=Math.max(b.__contentHeight*a-b.__clientHeight,0)},__startDeceleration:function(){var a=this;if(a.options.paging){var b=Math.max(Math.min(a.__scrollLeft,a.__maxScrollLeft),0),c=Math.max(Math.min(a.__scrollTop,a.__maxScrollTop),0),d=a.__clientWidth,e=a.__clientHeight;a.__minDecelerationScrollLeft=Math.floor(b/d)*d,a.__minDecelerationScrollTop=Math.floor(c/e)*e,a.__maxDecelerationScrollLeft=Math.ceil(b/d)*d,a.__maxDecelerationScrollTop=Math.ceil(c/e)*e}else a.__minDecelerationScrollLeft=0,a.__minDecelerationScrollTop=0,a.__maxDecelerationScrollLeft=a.__maxScrollLeft,a.__maxDecelerationScrollTop=a.__maxScrollTop;var f=function(b,c,d){a.__stepThroughDeceleration(d)},g=a.options.snapping?4:.1,h=function(){return Math.abs(a.__decelerationVelocityX)>=g||Math.abs(a.__decelerationVelocityY)>=g},i=function(){a.__isDecelerating=!1,a.scrollTo(a.__scrollLeft,a.__scrollTop,a.options.snapping)};a.__isDecelerating=core.effect.Animate.start(f,h,i)},__stepThroughDeceleration:function(a){var b=this,c=b.__scrollLeft+b.__decelerationVelocityX,d=b.__scrollTop+b.__decelerationVelocityY;if(!b.options.bouncing){var e=Math.max(Math.min(b.__maxScrollLeft,c),0);e!==c&&(c=e,b.__decelerationVelocityX=0);var f=Math.max(Math.min(b.__maxScrollTop,d),0);f!==d&&(d=f,b.__decelerationVelocityY=0)}if(a?b.__publish(c,d,b.__zoomLevel):(b.__scrollLeft=c,b.__scrollTop=d),!b.options.paging){var g=.95;b.__decelerationVelocityX*=g,b.__decelerationVelocityY*=g}if(b.options.bouncing){var h=0,i=0,j=.03,k=.08;c<b.__minDecelerationScrollLeft?h=b.__minDecelerationScrollLeft-c:c>b.__maxDecelerationScrollLeft&&(h=b.__maxDecelerationScrollLeft-c),d<b.__minDecelerationScrollTop?i=b.__minDecelerationScrollTop-d:d>b.__maxDecelerationScrollTop&&(i=b.__maxDecelerationScrollTop-d),0!==h&&(h*b.__decelerationVelocityX<=0?b.__decelerationVelocityX+=h*j:b.__decelerationVelocityX=h*k),0!==i&&(i*b.__decelerationVelocityY<=0?b.__decelerationVelocityY+=i*j:b.__decelerationVelocityY=i*k)}}};for(var d in c)Scroller.prototype[d]=c[d]}();/*
+if (typeof module != "undefined")
+  var canvasSupport = require("./components/canvas_support.js"),
+      HMMLogo = require("./components/hmm_logo_canvas"),
+      ActiveSitesAdder = require("./ActiveSites/ActiveSitesAdder.js");
+
+(function ($) {
+  "use strict";
+
+  $.fn.hmm_logo = function (options) {
+    var logo = null,
+      logo_graphic = $('<div class="logo_graphic">');
+    var self = this;
+    if (canvasSupport()) {
+      options = options || {};
+
+      // add some internal divs for scrolling etc.
+      $(this).append(
+        $('<div class="logo_container">').append(logo_graphic).append('<div class="logo_divider">')
+      );
+
+      options.data = $(this).data('logo');
+
+      if (options.data === null) {
+        return;
+      }
+
+      options.dom_element = logo_graphic;
+      options.called_on = this;
+
+      var zoom = options.zoom || 0.4,
+        form = $('<form class="logo_form"><fieldset><label for="position">Column number</label>' +
+          '<input type="text" name="position" class="logo_position" />' +
+          '<button class="button logo_change">Go</button></fieldset>' +
+          '</form>'),
+        controls = $('<div class="logo_controls">'),
+        settings = $('<div class="logo_settings">');
+
+      settings.append('<span class="close">x</span>');
+
+      logo = new HMMLogo(options);
+      logo.render_x_axis_label();
+      logo.render_y_axis_label();
+      logo.render(options);
+
+      if (logo.zoom_enabled) {
+        controls.append('<button class="logo_zoomout button">-</button>' +
+          '<button class="logo_zoomin button">+</button>');
+      }
+
+      /* we don't want to toggle if the max height_obs is greater than max theoretical
+       * as letters will fall off the top.
+       */
+      if (logo.scale_height_enabled && (logo.data.max_height_obs < logo.data.max_height_theory)) {
+        var obs_checked = '',
+          theory_checked = '',
+          theory_help = '',
+          obs_help = '';
+
+        if (logo.data.max_height_obs === logo.data.max_height) {
+          obs_checked = 'checked';
+        } else {
+          theory_checked = 'checked';
+        }
+
+        if (options.help) {
+          obs_help = '<a class="help" href="/help#scale_obs" title="Set the y-axis maximum to the maximum observed height.">' +
+            '<span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>';
+          theory_help = '<a class="help" href="/help#scale_theory" title="Set the y-axis maximum to the theoretical maximum height">' +
+            '<span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>';
+        }
+
+        var scale_controls = '<fieldset><legend>Scale</legend>' +
+          '<label><input type="radio" name="scale" class="logo_scale" value="obs" ' + obs_checked +
+          '/>Maximum Observed ' + obs_help +
+          '</label></br>' +
+          '<label><input type="radio" name="scale" class="logo_scale" value="theory" ' + theory_checked +
+          '/>Maximum Theoretical ' + theory_help +
+          '</label>' +
+          '</fieldset>';
+
+        settings.append(scale_controls);
+      }
+
+      if (logo.data.height_calc !== 'score' && logo.data.alphabet === 'aa' && logo.data.probs_arr) {
+
+        var def_color = null,
+          con_color = null,
+          def_help = '',
+          con_help = '';
+
+        if (logo.colorscheme === 'default') {
+          def_color = 'checked';
+        } else {
+          con_color = 'checked';
+        };
+
+        if (options.help) {
+          def_help = '<a class="help" href="/help#colors_default" title="Each letter receives its own color.">' +
+            '<span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>';
+          con_help = '<a class="help" href="/help#colors_consensus" title="Letters are colored as in Clustalx and Jalview, with colors depending on composition of the column.">' +
+            '<span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>';
+        }
+
+        var color_controls = '<fieldset><legend>Color Scheme</legend>' +
+          '<label><input type="radio" name="color" class="logo_color" value="default" ' + def_color +
+          '/>Default ' + def_help +
+          '</label></br>' +
+          '<label><input type="radio" name="color" class="logo_color" value="consensus" ' + con_color +
+          '/>Consensus Colors ' + con_help +
+          '</label>' +
+          '</fieldset>';
+        settings.append(color_controls);
+      }
+
+      if (logo.data.ali_map) {
+        var mod_checked = null,
+            ali_checked = null,
+            mod_help = '',
+            ali_help = '',
+            familiy_accession = '';
+
+        if (logo.display_ali_map === 0) {
+          mod_checked = 'checked';
+        } else {
+          ali_checked = 'checked';
+        }
+
+        if (options.help) {
+          mod_help = '<a class="help" href="/help#coords_model" title="The coordinates along the top of the plot show the model position.">' +
+            '<span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>';
+          ali_help = '<a class="help" href="/help#coords_ali" title="The coordinates along the top of the plot show the column in the alignment associated with the model">' +
+            '<span aria-hidden="true" data-icon="?"></span><span class="reader-text">help</span></a>';
+        }
+
+        var ali_controls = '<fieldset><legend>Coordinates</legend>' +
+          '<label><input type="radio" name="coords" class="logo_ali_map" value="model" ' + mod_checked +
+          '/>Model ' + mod_help +
+          '</label></br>' +
+          '<label><input type="radio" name="coords" class="logo_ali_map" value="alignment" ' + ali_checked +
+          '/>Alignment ' + ali_help +
+          '</label>' +
+          '</fieldset>';
+        settings.append(ali_controls);
+
+      }
+
+      if (settings.children().length > 0) {
+        controls.append('<button class="logo_settings_switch button">Settings</button>');
+        controls.append(settings);
+      }
+
+      form.append(controls);
+      $(this).append(form);
+
+
+      $(this).find('.logo_settings_switch, .logo_settings .close').bind('click', function (e) {
+        e.preventDefault();
+        $('.logo_settings').toggle();
+      });
+
+      $(this).find('.logo_reset').bind('click', function (e) {
+        e.preventDefault();
+        var hmm_logo = logo;
+        hmm_logo.change_zoom({'target': hmm_logo.default_zoom});
+      });
+
+      $(this).find('.logo_change').bind('click', function (e) {
+        e.preventDefault();
+      });
+
+      $(this).find('.logo_zoomin').bind('click', function (e) {
+        e.preventDefault();
+        var hmm_logo = logo;
+        hmm_logo.change_zoom({'distance': 0.1, 'direction': '+'});
+      });
+
+      $(this).find('.logo_zoomout').bind('click', function (e) {
+        e.preventDefault();
+        var hmm_logo = logo;
+        hmm_logo.change_zoom({'distance': 0.1, 'direction': '-'});
+      });
+
+      $(this).find('.logo_scale').bind('change', function (e) {
+        var hmm_logo = logo;
+        hmm_logo.toggle_scale(this.value);
+      });
+
+      $(this).find('.logo_color').bind('change', function (e) {
+        var hmm_logo = logo;
+        hmm_logo.toggle_colorscheme(this.value);
+      });
+
+      $(this).find('.logo_ali_map').bind('change', function (e) {
+        var hmm_logo = logo;
+        hmm_logo.toggle_ali_map(this.value);
+      });
+
+      $(this).find('.logo_position').bind('change', function () {
+        var hmm_logo = logo;
+        if (!this.value.match(/^\d+$/m)) {
+          return;
+        }
+        hmm_logo.scrollToColumn(this.value, 1);
+      });
+
+      logo_graphic.bind('dblclick', function (e) {
+        // need to get coordinates of mouse click
+        var hmm_logo = logo,
+          offset = $(this).offset(),
+          x = parseInt((e.pageX - offset.left), 10),
+
+          // get mouse position in the window
+          window_position = e.pageX - $(this).parent().offset().left,
+
+          // get column number
+          col = hmm_logo.columnFromCoordinates(x),
+
+          // choose new zoom level and zoom in.
+          current = hmm_logo.zoom;
+
+        if (current < 1) {
+          hmm_logo.change_zoom({'target': 1, offset: window_position, column: col});
+        } else {
+          hmm_logo.change_zoom({'target': 0.3, offset: window_position, column: col});
+        }
+
+        return;
+      });
+
+      if (options.column_info) {
+        logo_graphic.bind('click', function (e) {
+          var hmm_logo = logo,
+            info_tab = $('<table class="logo_col_info"></table>'),
+            header = '<tr>',
+            tbody  = '',
+            offset = $(this).offset(),
+            x = parseInt((e.pageX - offset.left), 10),
+
+            // get mouse position in the window
+            window_position = e.pageX - $(this).parent().offset().left,
+
+            // get column number
+            col = hmm_logo.columnFromCoordinates(x),
+            // clone the column data before reversal or the column gets messed
+            // up in the logo when zoom levels change. Also stops flip-flopping
+            // of the order from ascending to descending.
+            col_data = [],
+            info_cols = 0,
+            i = 0,
+            j = 0,
+            height_header = 'Probability';
+          hmm_logo.column_clicked = col;
+          hmm_logo.refresh();
+
+          if (logo.data.height_calc && logo.data.height_calc === 'score') {
+            height_header = 'Score';
+            col_data = logo.data.height_arr[col - 1].slice(0).reverse();
+          } else {
+            col_data = logo.data.probs_arr[col - 1].slice(0).reverse();
+          }
+
+          info_cols = Math.ceil(col_data.length / 5);
+          //add the headers for each column.
+          for (i = 0; i < info_cols; i++) {
+            // using the i < info_cols - 1 check to make sure the last column doesn't
+            // get marked with the odd class so we don't get a border on the edge of the table.
+            if (info_cols > 1 && i < (info_cols - 1)) {
+              header += '<th>Residue</th><th class="odd">' + height_header + '</th>';
+            } else {
+              header += '<th>Residue</th><th>' + height_header + '</th>';
+            }
+          }
+
+
+          header += '</tr>';
+          info_tab.append($(header));
+
+          // add the data for each column
+          for (i = 0; i < 5; i++) {
+            tbody += '<tr>';
+            j = i;
+            while (col_data[j]) {
+              var values = col_data[j].split(':', 2),
+                color = '';
+              if (logo.colorscheme === 'default') {
+                color = logo.alphabet + '_' + values[0];
+              }
+              // using the j < 15 check to make sure the last column doesn't get marked
+              // with the odd class so we don't get a border on the edge of the table.
+              if (info_cols > 1  &&  j < 15) {
+                tbody += '<td class="' + color + '"><div></div>' + values[0] + '</td><td class="odd">' + values[1] + '</td>';
+              } else {
+                tbody += '<td class="' + color + '"><div></div>' + values[0] + '</td><td>' + values[1] + '</td>';
+              }
+
+              j += 5;
+            }
+            tbody += '</tr>';
+          }
+
+          info_tab.append($(tbody));
+
+          $(options.column_info).empty()
+            .append($('<p> Column:' + col  + '</p><div><p>Occupancy: ' + logo.data.delete_probs[col - 1] + '</p><p>Insert Probability: ' + logo.data.insert_probs[col - 1] + '</p><p>Insert Length: ' + logo.data.insert_lengths[col - 1] + '</p></div>'))
+            .append(info_tab).show();
+        });
+      }
+
+      logo_graphic.bind('mousemove', function (e) {
+        var hmm_logo = logo,
+            offset = $(this).offset(),
+            x = parseInt((e.pageX - offset.left), 10),
+            col = hmm_logo.columnFromCoordinates(x);
+
+        if (hmm_logo.column_hover!=col){
+          hmm_logo.column_hover = col;
+          hmm_logo.refresh();
+        }
+
+      });
+
+      $(document).bind(this.attr('id') + ".scrolledTo", function (e, left, top, zoom) {
+        var hmm_logo = logo;
+        hmm_logo.render({target: left});
+      });
+
+      $(document).keydown(function (e) {
+        if (!e.ctrlKey) {
+          if (e.which === 61 || e.which === 107) {
+            zoom += 0.1;
+            logo.change_zoom({'distance': 0.1, 'direction': '+'});
+          }
+          if (e.which === 109 || e.which === 0) {
+            zoom = zoom - 0.1;
+            logo.change_zoom({'distance': 0.1, 'direction': '-'});
+          }
+        }
+      });
+
+      // ACTIVE SITES PANEL
+      if (logo.active_sites_sources!=null && typeof logo.active_sites_sources == "object") {
+        var active_sites = '<fieldset><legend>ActiveSites</legend>' +
+            '<label>Source: <select name="member_db" class="logo_ali_map">';
+        for (var key in logo.active_sites_sources) {
+          active_sites += '<option value="'+key+'">'+key+'</option> ';
+        }
+        active_sites += '</select></label> ' + // + mod_help +
+            '</br>' +
+            '<label>Accession number: ' +
+            '   <input type="text" name="familiy_accession" class="logo_ali_map" value="PF00199"/>' +
+            '</label><br/>' +
+            '<button id="active_sites">Get Active Sites</button>' +
+            '</fieldset>';
+
+        settings.append(active_sites);
+      }
+
+      $(this).find('#active_sites').bind('click', function (e) {
+        e.preventDefault();
+        var hmm_logo = logo;
+        var source = $("select[name=member_db]").val(),
+            url = hmm_logo.active_sites_sources[source],
+            acc= $("input[name=familiy_accession]").val();
+        if (""!=acc.trim()) {
+          url = url.replace("[ACCESSION]", acc);
+          $.getJSON(url,function(data){
+            if (hmm_logo.active_sites_adder==null)
+              hmm_logo.active_sites_adder = new ActiveSitesAdder(data,hmm_logo);
+            else{
+              hmm_logo.active_sites_adder.resetData(data);
+            }
+            hmm_logo.active_sites_adder.process();
+            hmm_logo.show_active_sites = true;
+            hmm_logo.refresh();
+
+          });
+        }
+      });
+
+    } else {
+      $('#logo').replaceWith($('#no_canvas').html());
+    }
+
+    return logo;
+  };
+})(jQuery);
+
+},{"./ActiveSites/ActiveSitesAdder.js":2,"./components/canvas_support.js":5,"./components/hmm_logo_canvas":7}]},{},[9]);
+/*
  * qTip2 - Pretty powerful tooltips - v2.1.1
  * http://qtip2.com
  *
@@ -2772,3 +5083,1757 @@ $.extend(TRUE, QTIP.defaults, {
 }( window, document ));
 
 
+/** @license
+ * Scroller
+ * http://github.com/zynga/scroller
+ *
+ * Copyright 2011, Zynga Inc.
+ * Licensed under the MIT License.
+ * https://raw.github.com/zynga/scroller/master/MIT-LICENSE.txt
+ *
+ * Based on the work of: Unify Project (unify-project.org)
+ * http://unify-project.org
+ * Copyright 2011, Deutsche Telekom AG
+ * License: MIT + Apache (V2)
+ *
+ * Inspired by: https://github.com/inexorabletash/raf-shim/blob/master/raf.js
+ */
+(function(global)
+{
+	if(global.requestAnimationFrame) {
+		return;
+	}
+
+	// Basic emulation of native methods for internal use
+
+	var now = Date.now || function() {
+		return +new Date;
+	};
+
+	var getKeys = Object.keys || function(obj) {
+
+		var keys = {};
+		for (var key in obj) {
+			keys[key] = true;
+		}
+
+		return keys;
+
+	};
+
+	var isEmpty = Object.empty || function(obj) {
+
+		for (var key in obj) {
+			return false;
+		}
+
+		return true;
+
+	};
+
+
+	// requestAnimationFrame polyfill
+	// http://webstuff.nfshost.com/anim-timing/Overview.html
+
+	var postfix = "RequestAnimationFrame";
+	var prefix = (function()
+	{
+		var all = "webkit,moz,o,ms".split(",");
+		for (var i=0; i<4; i++) {
+			if (global[all[i]+postfix] != null) {
+				return all[i];
+			}
+		}
+	})();
+
+	// Vendor specific implementation
+	if (prefix)
+	{
+		global.requestAnimationFrame = global[prefix+postfix];
+		global.cancelRequestAnimationFrame = global[prefix+"Cancel"+postfix];
+		return;
+	}
+
+	// Custom implementation
+	var TARGET_FPS = 60;
+	var requests = {};
+	var rafHandle = 1;
+	var timeoutHandle = null;
+
+	global.requestAnimationFrame = function(callback, root)
+	{
+		var callbackHandle = rafHandle++;
+
+		// Store callback
+		requests[callbackHandle] = callback;
+
+		// Create timeout at first request
+		if (timeoutHandle === null)
+		{
+			timeoutHandle = setTimeout(function()
+			{
+				var time = now();
+				var currentRequests = requests;
+				var keys = getKeys(currentRequests);
+
+				// Reset data structure before executing callbacks
+				requests = {};
+				timeoutHandle = null;
+
+				// Process all callbacks
+				for (var i=0, l=keys.length; i<l; i++) {
+					currentRequests[keys[i]](time);
+				}
+			}, 1000 / TARGET_FPS);
+		}
+
+		return callbackHandle;
+	};
+
+	global.cancelRequestAnimationFrame = function(handle)
+	{
+		delete requests[handle];
+
+		// Stop timeout if all where removed
+		if (isEmpty(requests))
+		{
+			clearTimeout(timeoutHandle);
+			timeoutHandle = null;
+		}
+	};
+
+})(this);/*
+ * Scroller
+ * http://github.com/zynga/scroller
+ *
+ * Copyright 2011, Zynga Inc.
+ * Licensed under the MIT License.
+ * https://raw.github.com/zynga/scroller/master/MIT-LICENSE.txt
+ *
+ * Based on the work of: Unify Project (unify-project.org)
+ * http://unify-project.org
+ * Copyright 2011, Deutsche Telekom AG
+ * License: MIT + Apache (V2)
+ */
+
+/**
+ * Generic animation class with support for dropped frames both optional easing and duration.
+ *
+ * Optional duration is useful when the lifetime is defined by another condition than time
+ * e.g. speed of an animating object, etc.
+ *
+ * Dropped frame logic allows to keep using the same updater logic independent from the actual
+ * rendering. This eases a lot of cases where it might be pretty complex to break down a state
+ * based on the pure time difference.
+ */
+(function(global) {
+	var time = Date.now || function() {
+		return +new Date();
+	};
+	var desiredFrames = 60;
+	var millisecondsPerSecond = 1000;
+	var running = {};
+	var counter = 1;
+
+	// Create namespaces
+	if (!global.core) {
+		global.core = { effect : {} };
+	} else if (!core.effect) {
+		core.effect = {};
+	}
+
+	core.effect.Animate = {
+
+		/**
+		 * Stops the given animation.
+		 *
+		 * @param id {Integer} Unique animation ID
+		 * @return {Boolean} Whether the animation was stopped (aka, was running before)
+		 */
+		stop: function(id) {
+			var cleared = running[id] != null;
+			if (cleared) {
+				running[id] = null;
+			}
+
+			return cleared;
+		},
+
+
+		/**
+		 * Whether the given animation is still running.
+		 *
+		 * @param id {Integer} Unique animation ID
+		 * @return {Boolean} Whether the animation is still running
+		 */
+		isRunning: function(id) {
+			return running[id] != null;
+		},
+
+
+		/**
+		 * Start the animation.
+		 *
+		 * @param stepCallback {Function} Pointer to function which is executed on every step.
+		 *   Signature of the method should be `function(percent, now, virtual) { return continueWithAnimation; }`
+		 * @param verifyCallback {Function} Executed before every animation step.
+		 *   Signature of the method should be `function() { return continueWithAnimation; }`
+		 * @param completedCallback {Function}
+		 *   Signature of the method should be `function(droppedFrames, finishedAnimation) {}`
+		 * @param duration {Integer} Milliseconds to run the animation
+		 * @param easingMethod {Function} Pointer to easing function
+		 *   Signature of the method should be `function(percent) { return modifiedValue; }`
+		 * @param root {Element ? document.body} Render root, when available. Used for internal
+		 *   usage of requestAnimationFrame.
+		 * @return {Integer} Identifier of animation. Can be used to stop it any time.
+		 */
+		start: function(stepCallback, verifyCallback, completedCallback, duration, easingMethod, root) {
+
+			var start = time();
+			var lastFrame = start;
+			var percent = 0;
+			var dropCounter = 0;
+			var id = counter++;
+
+			if (!root) {
+				root = document.body;
+			}
+
+			// Compacting running db automatically every few new animations
+			if (id % 20 === 0) {
+				var newRunning = {};
+				for (var usedId in running) {
+					newRunning[usedId] = true;
+				}
+				running = newRunning;
+			}
+
+			// This is the internal step method which is called every few milliseconds
+			var step = function(virtual) {
+
+				// Normalize virtual value
+				var render = virtual !== true;
+
+				// Get current time
+				var now = time();
+
+				// Verification is executed before next animation step
+				if (!running[id] || (verifyCallback && !verifyCallback(id))) {
+
+					running[id] = null;
+					completedCallback && completedCallback(desiredFrames - (dropCounter / ((now - start) / millisecondsPerSecond)), id, false);
+					return;
+
+				}
+
+				// For the current rendering to apply let's update omitted steps in memory.
+				// This is important to bring internal state variables up-to-date with progress in time.
+				if (render) {
+
+					var droppedFrames = Math.round((now - lastFrame) / (millisecondsPerSecond / desiredFrames)) - 1;
+					for (var j = 0; j < Math.min(droppedFrames, 4); j++) {
+						step(true);
+						dropCounter++;
+					}
+
+				}
+
+				// Compute percent value
+				if (duration) {
+					percent = (now - start) / duration;
+					if (percent > 1) {
+						percent = 1;
+					}
+				}
+
+				// Execute step callback, then...
+				var value = easingMethod ? easingMethod(percent) : percent;
+				if ((stepCallback(value, now, render) === false || percent === 1) && render) {
+					running[id] = null;
+					completedCallback && completedCallback(desiredFrames - (dropCounter / ((now - start) / millisecondsPerSecond)), id, percent === 1 || duration == null);
+				} else if (render) {
+					lastFrame = now;
+					requestAnimationFrame(step, root);
+				}
+			};
+
+			// Mark as running
+			running[id] = true;
+
+			// Init first step
+			requestAnimationFrame(step, root);
+
+			// Return unique animation ID
+			return id;
+		}
+	};
+})(this);
+
+var EasyScroller = function(content, options) {
+
+	this.content = content;
+	this.container = content.parentNode;
+	this.options = options || {};
+
+	// create Scroller instance
+	var that = this;
+	this.scroller = new Scroller(function(left, top, zoom) {
+		that.render(left, top, zoom);
+	}, options);
+
+	// bind events
+	this.bindEvents();
+
+	// the content element needs a correct transform origin for zooming
+	this.content.style[EasyScroller.vendorPrefix + 'TransformOrigin'] = "left top";
+
+	// reflow for the first time
+	this.reflow();
+
+};
+
+EasyScroller.prototype.render = (function() {
+
+	var docStyle = document.documentElement.style;
+
+	var engine;
+	if (window.opera && Object.prototype.toString.call(opera) === '[object Opera]') {
+		engine = 'presto';
+	} else if ('MozAppearance' in docStyle) {
+		engine = 'gecko';
+	} else if ('WebkitAppearance' in docStyle) {
+		engine = 'webkit';
+	} else if (typeof navigator.cpuClass === 'string') {
+		engine = 'trident';
+	}
+
+	var vendorPrefix = EasyScroller.vendorPrefix = {
+		trident: 'ms',
+		gecko: 'Moz',
+		webkit: 'Webkit',
+		presto: 'O'
+	}[engine];
+
+	var helperElem = document.createElement("div");
+	var undef;
+
+	var perspectiveProperty = vendorPrefix + "Perspective";
+	var transformProperty = vendorPrefix + "Transform";
+
+	if (helperElem.style[perspectiveProperty] !== undef) {
+
+		return function(left, top, zoom) {
+			this.content.style[transformProperty] = 'translate3d(' + (-left) + 'px,' + (-top) + 'px,0) scale(' + zoom + ')';
+		};
+
+	} else if (helperElem.style[transformProperty] !== undef) {
+
+		return function(left, top, zoom) {
+			this.content.style[transformProperty] = 'translate(' + (-left) + 'px,' + (-top) + 'px) scale(' + zoom + ')';
+		};
+
+	} else {
+
+		return function(left, top, zoom) {
+			this.content.style.marginLeft = left ? (-left/zoom) + 'px' : '';
+			this.content.style.marginTop = top ? (-top/zoom) + 'px' : '';
+			this.content.style.zoom = zoom || '';
+		};
+
+	}
+})();
+
+EasyScroller.prototype.reflow = function() {
+
+	// set the right scroller dimensions
+	this.scroller.setDimensions(this.container.clientWidth, this.container.clientHeight, this.content.offsetWidth, this.content.offsetHeight);
+
+	// refresh the position for zooming purposes
+	var rect = this.container.getBoundingClientRect();
+	this.scroller.setPosition(rect.left + this.container.clientLeft, rect.top + this.container.clientTop);
+
+};
+
+EasyScroller.prototype.bindEvents = function() {
+
+	var that = this;
+
+	// reflow handling
+	$(window).bind("resize", function() {
+		that.reflow();
+	});
+
+  // added this here, not ideal, but it makes sure that the logo will
+  // scroll correctly when the model tab is revealed.
+  $('#modelTab').bind('click', function() {
+		that.reflow();
+  });
+
+
+	// touch devices bind touch events
+	if ('ontouchstart' in window) {
+
+		this.container.addEventListener("touchstart", function(e) {
+
+			// Don't react if initial down happens on a form element
+			if (e.touches[0] && e.touches[0].target && e.touches[0].target.tagName.match(/input|textarea|select/i)) {
+				return;
+			}
+
+			that.scroller.doTouchStart(e.touches, new Date().getTime());
+			e.preventDefault();
+
+		}, false);
+
+		document.addEventListener("touchmove", function(e) {
+			that.scroller.doTouchMove(e.touches, new Date().getTime(), e.scale);
+		}, false);
+
+		document.addEventListener("touchend", function(e) {
+			that.scroller.doTouchEnd(new Date().getTime());
+		}, false);
+
+		document.addEventListener("touchcancel", function(e) {
+			that.scroller.doTouchEnd(new Date().getTime());
+		}, false);
+
+	// non-touch bind mouse events
+	} else {
+
+		var mousedown = false;
+
+		$(this.container).bind("mousedown", function(e) {
+
+			if (e.target.tagName.match(/input|textarea|select/i)) {
+				return;
+			}
+
+
+			that.scroller.doTouchStart([{
+				pageX: e.pageX,
+				pageY: e.pageY
+			}], new Date().getTime());
+
+			mousedown = true;
+			e.preventDefault();
+
+		});
+
+		$(document).bind("mousemove", function(e) {
+
+			if (!mousedown) {
+				return;
+			}
+
+			that.scroller.doTouchMove([{
+				pageX: e.pageX,
+				pageY: e.pageY
+			}], new Date().getTime());
+
+			mousedown = true;
+
+		});
+
+		$(document).bind("mouseup", function(e) {
+
+			if (!mousedown) {
+				return;
+			}
+
+      that.scroller.doTouchEnd(new Date().getTime());
+
+			mousedown = false;
+
+		});
+
+		$(this.container).bind("mousewheel", function(e) {
+			if(that.options.zooming) {
+				that.scroller.doMouseZoom(e.wheelDelta, new Date().getTime(), e.pageX, e.pageY);
+				e.preventDefault();
+			}
+		});
+
+	}
+
+};
+
+/*
+ * Scroller
+ * http://github.com/zynga/scroller
+ *
+ * Copyright 2011, Zynga Inc.
+ * Licensed under the MIT License.
+ * https://raw.github.com/zynga/scroller/master/MIT-LICENSE.txt
+ *
+ * Based on the work of: Unify Project (unify-project.org)
+ * http://unify-project.org
+ * Copyright 2011, Deutsche Telekom AG
+ * License: MIT + Apache (V2)
+ */
+
+var Scroller;
+
+(function() {
+
+	/**
+	 * A pure logic 'component' for 'virtual' scrolling/zooming.
+	 */
+	Scroller = function(callback, options) {
+
+		this.__callback = callback;
+
+		this.options = {
+
+			/** Enable scrolling on x-axis */
+			scrollingX: true,
+
+			/** Enable scrolling on y-axis */
+			scrollingY: true,
+
+			/** Enable animations for deceleration, snap back, zooming and scrolling */
+			animating: true,
+
+			/** Enable bouncing (content can be slowly moved outside and jumps back after releasing) */
+			bouncing: true,
+
+			/** Enable locking to the main axis if user moves only slightly on one of them at start */
+			locking: true,
+
+			/** Enable pagination mode (switching between full page content panes) */
+			paging: false,
+
+			/** Enable snapping of content to a configured pixel grid */
+			snapping: false,
+
+			/** Enable zooming of content via API, fingers and mouse wheel */
+			zooming: false,
+
+			/** Minimum zoom level */
+			minZoom: 0.5,
+
+			/** Maximum zoom level */
+			maxZoom: 3,
+
+      /** event target **/
+      eventTarget: null
+
+		};
+
+		for (var key in options) {
+			this.options[key] = options[key];
+		}
+
+	};
+
+
+	// Easing Equations (c) 2003 Robert Penner, all rights reserved.
+	// Open source under the BSD License.
+
+	/**
+	 * @param pos {Number} position between 0 (start of effect) and 1 (end of effect)
+	**/
+	var easeOutCubic = function(pos) {
+		return (Math.pow((pos - 1), 3) + 1);
+	};
+
+	/**
+	 * @param pos {Number} position between 0 (start of effect) and 1 (end of effect)
+	**/
+	var easeInOutCubic = function(pos) {
+		if ((pos /= 0.5) < 1) {
+			return 0.5 * Math.pow(pos, 3);
+		}
+
+		return 0.5 * (Math.pow((pos - 2), 3) + 2);
+	};
+
+
+	var members = {
+
+		/*
+		---------------------------------------------------------------------------
+			INTERNAL FIELDS :: STATUS
+		---------------------------------------------------------------------------
+		*/
+
+		/** {Boolean} Whether only a single finger is used in touch handling */
+		__isSingleTouch: false,
+
+		/** {Boolean} Whether a touch event sequence is in progress */
+		__isTracking: false,
+
+		/**
+		 * {Boolean} Whether a gesture zoom/rotate event is in progress. Activates when
+		 * a gesturestart event happens. This has higher priority than dragging.
+		 */
+		__isGesturing: false,
+
+		/**
+		 * {Boolean} Whether the user has moved by such a distance that we have enabled
+		 * dragging mode. Hint: It's only enabled after some pixels of movement to
+		 * not interrupt with clicks etc.
+		 */
+		__isDragging: false,
+
+		/**
+		 * {Boolean} Not touching and dragging anymore, and smoothly animating the
+		 * touch sequence using deceleration.
+		 */
+		__isDecelerating: false,
+
+		/**
+		 * {Boolean} Smoothly animating the currently configured change
+		 */
+		__isAnimating: false,
+
+
+
+		/*
+		---------------------------------------------------------------------------
+			INTERNAL FIELDS :: DIMENSIONS
+		---------------------------------------------------------------------------
+		*/
+
+		/** {Integer} Available outer left position (from document perspective) */
+		__clientLeft: 0,
+
+		/** {Integer} Available outer top position (from document perspective) */
+		__clientTop: 0,
+
+		/** {Integer} Available outer width */
+		__clientWidth: 0,
+
+		/** {Integer} Available outer height */
+		__clientHeight: 0,
+
+		/** {Integer} Outer width of content */
+		__contentWidth: 0,
+
+		/** {Integer} Outer height of content */
+		__contentHeight: 0,
+
+		/** {Integer} Snapping width for content */
+		__snapWidth: 100,
+
+		/** {Integer} Snapping height for content */
+		__snapHeight: 100,
+
+		/** {Integer} Height to assign to refresh area */
+		__refreshHeight: null,
+
+		/** {Boolean} Whether the refresh process is enabled when the event is released now */
+		__refreshActive: false,
+
+		/** {Function} Callback to execute on activation. This is for signalling the user about a refresh is about to happen when he release */
+		__refreshActivate: null,
+
+		/** {Function} Callback to execute on deactivation. This is for signalling the user about the refresh being cancelled */
+		__refreshDeactivate: null,
+
+		/** {Function} Callback to execute to start the actual refresh. Call {@link #refreshFinish} when done */
+		__refreshStart: null,
+
+		/** {Number} Zoom level */
+		__zoomLevel: 1,
+
+		/** {Number} Scroll position on x-axis */
+		__scrollLeft: 0,
+
+		/** {Number} Scroll position on y-axis */
+		__scrollTop: 0,
+
+		/** {Integer} Maximum allowed scroll position on x-axis */
+		__maxScrollLeft: 0,
+
+		/** {Integer} Maximum allowed scroll position on y-axis */
+		__maxScrollTop: 0,
+
+		/* {Number} Scheduled left position (final position when animating) */
+		__scheduledLeft: 0,
+
+		/* {Number} Scheduled top position (final position when animating) */
+		__scheduledTop: 0,
+
+		/* {Number} Scheduled zoom level (final scale when animating) */
+		__scheduledZoom: 0,
+
+
+
+		/*
+		---------------------------------------------------------------------------
+			INTERNAL FIELDS :: LAST POSITIONS
+		---------------------------------------------------------------------------
+		*/
+
+		/** {Number} Left position of finger at start */
+		__lastTouchLeft: null,
+
+		/** {Number} Top position of finger at start */
+		__lastTouchTop: null,
+
+		/** {Date} Timestamp of last move of finger. Used to limit tracking range for deceleration speed. */
+		__lastTouchMove: null,
+
+		/** {Array} List of positions, uses three indexes for each state: left, top, timestamp */
+		__positions: null,
+
+
+
+		/*
+		---------------------------------------------------------------------------
+			INTERNAL FIELDS :: DECELERATION SUPPORT
+		---------------------------------------------------------------------------
+		*/
+
+		/** {Integer} Minimum left scroll position during deceleration */
+		__minDecelerationScrollLeft: null,
+
+		/** {Integer} Minimum top scroll position during deceleration */
+		__minDecelerationScrollTop: null,
+
+		/** {Integer} Maximum left scroll position during deceleration */
+		__maxDecelerationScrollLeft: null,
+
+		/** {Integer} Maximum top scroll position during deceleration */
+		__maxDecelerationScrollTop: null,
+
+		/** {Number} Current factor to modify horizontal scroll position with on every step */
+		__decelerationVelocityX: null,
+
+		/** {Number} Current factor to modify vertical scroll position with on every step */
+		__decelerationVelocityY: null,
+
+
+
+		/*
+		---------------------------------------------------------------------------
+			PUBLIC API
+		---------------------------------------------------------------------------
+		*/
+
+		/**
+		 * Configures the dimensions of the client (outer) and content (inner) elements.
+		 * Requires the available space for the outer element and the outer size of the inner element.
+		 * All values which are falsy (null or zero etc.) are ignored and the old value is kept.
+		 *
+		 * @param clientWidth {Integer ? null} Inner width of outer element
+		 * @param clientHeight {Integer ? null} Inner height of outer element
+		 * @param contentWidth {Integer ? null} Outer width of inner element
+		 * @param contentHeight {Integer ? null} Outer height of inner element
+		 */
+		setDimensions: function(clientWidth, clientHeight, contentWidth, contentHeight) {
+
+			var self = this;
+
+			// Only update values which are defined
+			if (clientWidth) {
+				self.__clientWidth = clientWidth;
+			}
+
+			if (clientHeight) {
+				self.__clientHeight = clientHeight;
+			}
+
+			if (contentWidth) {
+				self.__contentWidth = contentWidth;
+			}
+
+			if (contentHeight) {
+				self.__contentHeight = contentHeight;
+			}
+
+			// Refresh maximums
+			self.__computeScrollMax();
+
+			// Refresh scroll position
+			self.scrollTo(self.__scrollLeft, self.__scrollTop, true);
+
+		},
+
+
+		/**
+		 * Sets the client coordinates in relation to the document.
+		 *
+		 * @param left {Integer ? 0} Left position of outer element
+		 * @param top {Integer ? 0} Top position of outer element
+		 */
+		setPosition: function(left, top) {
+
+			var self = this;
+
+			self.__clientLeft = left || 0;
+			self.__clientTop = top || 0;
+
+		},
+
+
+		/**
+		 * Configures the snapping (when snapping is active)
+		 *
+		 * @param width {Integer} Snapping width
+		 * @param height {Integer} Snapping height
+		 */
+		setSnapSize: function(width, height) {
+
+			var self = this;
+
+			self.__snapWidth = width;
+			self.__snapHeight = height;
+
+		},
+
+
+		/**
+		 * Activates pull-to-refresh. A special zone on the top of the list to start a list refresh whenever
+		 * the user event is released during visibility of this zone. This was introduced by some apps on iOS like
+		 * the official Twitter client.
+		 *
+		 * @param height {Integer} Height of pull-to-refresh zone on top of rendered list
+		 * @param activateCallback {Function} Callback to execute on activation. This is for signalling the user about a refresh is about to happen when he release.
+		 * @param deactivateCallback {Function} Callback to execute on deactivation. This is for signalling the user about the refresh being cancelled.
+		 * @param startCallback {Function} Callback to execute to start the real async refresh action. Call {@link #finishPullToRefresh} after finish of refresh.
+		 */
+		activatePullToRefresh: function(height, activateCallback, deactivateCallback, startCallback) {
+
+			var self = this;
+
+			self.__refreshHeight = height;
+			self.__refreshActivate = activateCallback;
+			self.__refreshDeactivate = deactivateCallback;
+			self.__refreshStart = startCallback;
+
+		},
+
+
+		/**
+		 * Signalizes that pull-to-refresh is finished.
+		 */
+		finishPullToRefresh: function() {
+
+			var self = this;
+
+			self.__refreshActive = false;
+			if (self.__refreshDeactivate) {
+				self.__refreshDeactivate();
+			}
+
+			self.scrollTo(self.__scrollLeft, self.__scrollTop, true);
+
+		},
+
+
+		/**
+		 * Returns the scroll position and zooming values
+		 *
+		 * @return {Map} `left` and `top` scroll position and `zoom` level
+		 */
+		getValues: function() {
+
+			var self = this;
+
+			return {
+				left: self.__scrollLeft,
+				top: self.__scrollTop,
+				zoom: self.__zoomLevel
+			};
+
+		},
+
+
+		/**
+		 * Returns the maximum scroll values
+		 *
+		 * @return {Map} `left` and `top` maximum scroll values
+		 */
+		getScrollMax: function() {
+
+			var self = this;
+
+			return {
+				left: self.__maxScrollLeft,
+				top: self.__maxScrollTop
+			};
+
+		},
+
+
+		/**
+		 * Zooms to the given level. Supports optional animation. Zooms
+		 * the center when no coordinates are given.
+		 *
+		 * @param level {Number} Level to zoom to
+		 * @param animate {Boolean ? false} Whether to use animation
+		 * @param originLeft {Number ? null} Zoom in at given left coordinate
+		 * @param originTop {Number ? null} Zoom in at given top coordinate
+		 */
+		zoomTo: function(level, animate, originLeft, originTop) {
+
+			var self = this;
+
+			if (!self.options.zooming) {
+				throw new Error("Zooming is not enabled!");
+			}
+
+			// Stop deceleration
+			if (self.__isDecelerating) {
+				core.effect.Animate.stop(self.__isDecelerating);
+				self.__isDecelerating = false;
+			}
+
+			var oldLevel = self.__zoomLevel;
+
+			// Normalize input origin to center of viewport if not defined
+			if (originLeft == null) {
+				originLeft = self.__clientWidth / 2;
+			}
+
+			if (originTop == null) {
+				originTop = self.__clientHeight / 2;
+			}
+
+			// Limit level according to configuration
+			level = Math.max(Math.min(level, self.options.maxZoom), self.options.minZoom);
+
+			// Recompute maximum values while temporary tweaking maximum scroll ranges
+			self.__computeScrollMax(level);
+
+			// Recompute left and top coordinates based on new zoom level
+			var left = ((originLeft + self.__scrollLeft) * level / oldLevel) - originLeft;
+			var top = ((originTop + self.__scrollTop) * level / oldLevel) - originTop;
+
+			// Limit x-axis
+			if (left > self.__maxScrollLeft) {
+				left = self.__maxScrollLeft;
+			} else if (left < 0) {
+				left = 0;
+			}
+
+			// Limit y-axis
+			if (top > self.__maxScrollTop) {
+				top = self.__maxScrollTop;
+			} else if (top < 0) {
+				top = 0;
+			}
+
+			// Push values out
+			self.__publish(left, top, level, animate);
+
+		},
+
+
+		/**
+		 * Zooms the content by the given factor.
+		 *
+		 * @param factor {Number} Zoom by given factor
+		 * @param animate {Boolean ? false} Whether to use animation
+		 * @param originLeft {Number ? 0} Zoom in at given left coordinate
+		 * @param originTop {Number ? 0} Zoom in at given top coordinate
+		 */
+		zoomBy: function(factor, animate, originLeft, originTop) {
+
+			var self = this;
+
+			self.zoomTo(self.__zoomLevel * factor, animate, originLeft, originTop);
+
+		},
+
+
+		/**
+		 * Scrolls to the given position. Respect limitations and snapping automatically.
+		 *
+		 * @param left {Number?null} Horizontal scroll position, keeps current if value is <code>null</code>
+		 * @param top {Number?null} Vertical scroll position, keeps current if value is <code>null</code>
+		 * @param animate {Boolean?false} Whether the scrolling should happen using an animation
+		 * @param zoom {Number?null} Zoom level to go to
+		 */
+		scrollTo: function(left, top, animate, zoom) {
+
+      $(document).trigger(this.options.eventTarget.attr('id') +  ".scrolledTo", [left, top, zoom] );
+
+			var self = this;
+
+			// Stop deceleration
+			if (self.__isDecelerating) {
+				core.effect.Animate.stop(self.__isDecelerating);
+				self.__isDecelerating = false;
+			}
+
+			// Correct coordinates based on new zoom level
+			if (zoom != null && zoom !== self.__zoomLevel) {
+
+				if (!self.options.zooming) {
+					throw new Error("Zooming is not enabled!");
+				}
+
+				left *= zoom;
+				top *= zoom;
+
+				// Recompute maximum values while temporary tweaking maximum scroll ranges
+				self.__computeScrollMax(zoom);
+
+			} else {
+
+				// Keep zoom when not defined
+				zoom = self.__zoomLevel;
+
+			}
+
+			if (!self.options.scrollingX) {
+
+				left = self.__scrollLeft;
+
+			} else {
+
+				if (self.options.paging) {
+					left = Math.round(left / self.__clientWidth) * self.__clientWidth;
+				} else if (self.options.snapping) {
+					left = Math.round(left / self.__snapWidth) * self.__snapWidth;
+				}
+
+			}
+
+			if (!self.options.scrollingY) {
+
+				top = self.__scrollTop;
+
+			} else {
+
+				if (self.options.paging) {
+					top = Math.round(top / self.__clientHeight) * self.__clientHeight;
+				} else if (self.options.snapping) {
+					top = Math.round(top / self.__snapHeight) * self.__snapHeight;
+				}
+
+			}
+
+			// Limit for allowed ranges
+			left = Math.max(Math.min(self.__maxScrollLeft, left), 0);
+			top = Math.max(Math.min(self.__maxScrollTop, top), 0);
+
+			// Don't animate when no change detected, still call publish to make sure
+			// that rendered position is really in-sync with internal data
+			if (left === self.__scrollLeft && top === self.__scrollTop) {
+				animate = false;
+			}
+
+			// Publish new values
+			self.__publish(left, top, zoom, animate);
+
+		},
+
+
+		/**
+		 * Scroll by the given offset
+		 *
+		 * @param left {Number ? 0} Scroll x-axis by given offset
+		 * @param top {Number ? 0} Scroll x-axis by given offset
+		 * @param animate {Boolean ? false} Whether to animate the given change
+		 */
+		scrollBy: function(left, top, animate) {
+
+			var self = this;
+
+			var startLeft = self.__isAnimating ? self.__scheduledLeft : self.__scrollLeft;
+			var startTop = self.__isAnimating ? self.__scheduledTop : self.__scrollTop;
+
+			self.scrollTo(startLeft + (left || 0), startTop + (top || 0), animate);
+
+		},
+
+
+
+		/*
+		---------------------------------------------------------------------------
+			EVENT CALLBACKS
+		---------------------------------------------------------------------------
+		*/
+
+		/**
+		 * Mouse wheel handler for zooming support
+		 */
+		doMouseZoom: function(wheelDelta, timeStamp, pageX, pageY) {
+
+			var self = this;
+			var change = wheelDelta > 0 ? 0.97 : 1.03;
+
+			return self.zoomTo(self.__zoomLevel * change, false, pageX - self.__clientLeft, pageY - self.__clientTop);
+
+		},
+
+
+		/**
+		 * Touch start handler for scrolling support
+		 */
+		doTouchStart: function(touches, timeStamp) {
+
+			// Array-like check is enough here
+			if (touches.length == null) {
+				throw new Error("Invalid touch list: " + touches);
+			}
+
+			if (timeStamp instanceof Date) {
+				timeStamp = timeStamp.valueOf();
+			}
+			if (typeof timeStamp !== "number") {
+				throw new Error("Invalid timestamp value: " + timeStamp);
+			}
+
+			var self = this;
+
+			// Stop deceleration
+			if (self.__isDecelerating) {
+				core.effect.Animate.stop(self.__isDecelerating);
+				self.__isDecelerating = false;
+			}
+
+			// Stop animation
+			if (self.__isAnimating) {
+				core.effect.Animate.stop(self.__isAnimating);
+				self.__isAnimating = false;
+			}
+
+			// Use center point when dealing with two fingers
+			var currentTouchLeft, currentTouchTop;
+			var isSingleTouch = touches.length === 1;
+			if (isSingleTouch) {
+				currentTouchLeft = touches[0].pageX;
+				currentTouchTop = touches[0].pageY;
+			} else {
+				currentTouchLeft = Math.abs(touches[0].pageX + touches[1].pageX) / 2;
+				currentTouchTop = Math.abs(touches[0].pageY + touches[1].pageY) / 2;
+			}
+
+			// Store initial positions
+			self.__initialTouchLeft = currentTouchLeft;
+			self.__initialTouchTop = currentTouchTop;
+
+			// Store current zoom level
+			self.__zoomLevelStart = self.__zoomLevel;
+
+			// Store initial touch positions
+			self.__lastTouchLeft = currentTouchLeft;
+			self.__lastTouchTop = currentTouchTop;
+
+			// Store initial move time stamp
+			self.__lastTouchMove = timeStamp;
+
+			// Reset initial scale
+			self.__lastScale = 1;
+
+			// Reset locking flags
+			self.__enableScrollX = !isSingleTouch && self.options.scrollingX;
+			self.__enableScrollY = !isSingleTouch && self.options.scrollingY;
+
+			// Reset tracking flag
+			self.__isTracking = true;
+
+			// Dragging starts directly with two fingers, otherwise lazy with an offset
+			self.__isDragging = !isSingleTouch;
+
+			// Some features are disabled in multi touch scenarios
+			self.__isSingleTouch = isSingleTouch;
+
+			// Clearing data structure
+			self.__positions = [];
+
+		},
+
+
+		/**
+		 * Touch move handler for scrolling support
+		 */
+		doTouchMove: function(touches, timeStamp, scale) {
+
+			// Array-like check is enough here
+			if (touches.length == null) {
+				throw new Error("Invalid touch list: " + touches);
+			}
+
+			if (timeStamp instanceof Date) {
+				timeStamp = timeStamp.valueOf();
+			}
+			if (typeof timeStamp !== "number") {
+				throw new Error("Invalid timestamp value: " + timeStamp);
+			}
+
+			var self = this;
+
+			// Ignore event when tracking is not enabled (event might be outside of element)
+			if (!self.__isTracking) {
+				return;
+			}
+
+
+			var currentTouchLeft, currentTouchTop;
+
+			// Compute move based around of center of fingers
+			if (touches.length === 2) {
+				currentTouchLeft = Math.abs(touches[0].pageX + touches[1].pageX) / 2;
+				currentTouchTop = Math.abs(touches[0].pageY + touches[1].pageY) / 2;
+			} else {
+				currentTouchLeft = touches[0].pageX;
+				currentTouchTop = touches[0].pageY;
+			}
+
+			var positions = self.__positions;
+
+			// Are we already in dragging mode?
+			if (self.__isDragging) {
+
+				// Compute move distance
+				var moveX = currentTouchLeft - self.__lastTouchLeft;
+				var moveY = currentTouchTop - self.__lastTouchTop;
+
+				// Read previous scroll position and zooming
+				var scrollLeft = self.__scrollLeft;
+				var scrollTop = self.__scrollTop;
+				var level = self.__zoomLevel;
+
+				// Work with scaling
+				if (scale != null && self.options.zooming) {
+
+					var oldLevel = level;
+
+					// Recompute level based on previous scale and new scale
+					level = level / self.__lastScale * scale;
+
+					// Limit level according to configuration
+					level = Math.max(Math.min(level, self.options.maxZoom), self.options.minZoom);
+
+					// Only do further compution when change happened
+					if (oldLevel !== level) {
+
+						// Compute relative event position to container
+						var currentTouchLeftRel = currentTouchLeft - self.__clientLeft;
+						var currentTouchTopRel = currentTouchTop - self.__clientTop;
+
+						// Recompute left and top coordinates based on new zoom level
+						scrollLeft = ((currentTouchLeftRel + scrollLeft) * level / oldLevel) - currentTouchLeftRel;
+						scrollTop = ((currentTouchTopRel + scrollTop) * level / oldLevel) - currentTouchTopRel;
+
+						// Recompute max scroll values
+						self.__computeScrollMax(level);
+
+					}
+				}
+
+				if (self.__enableScrollX) {
+
+					scrollLeft -= moveX;
+					var maxScrollLeft = self.__maxScrollLeft;
+
+					if (scrollLeft > maxScrollLeft || scrollLeft < 0) {
+
+						// Slow down on the edges
+						if (self.options.bouncing) {
+
+							scrollLeft += (moveX / 2);
+
+						} else if (scrollLeft > maxScrollLeft) {
+
+							scrollLeft = maxScrollLeft;
+
+						} else {
+
+							scrollLeft = 0;
+
+						}
+					}
+				}
+
+				// Compute new vertical scroll position
+				if (self.__enableScrollY) {
+
+					scrollTop -= moveY;
+					var maxScrollTop = self.__maxScrollTop;
+
+					if (scrollTop > maxScrollTop || scrollTop < 0) {
+
+						// Slow down on the edges
+						if (self.options.bouncing) {
+
+							scrollTop += (moveY / 2);
+
+							// Support pull-to-refresh (only when only y is scrollable)
+							if (!self.__enableScrollX && self.__refreshHeight != null) {
+
+								if (!self.__refreshActive && scrollTop <= -self.__refreshHeight) {
+
+									self.__refreshActive = true;
+									if (self.__refreshActivate) {
+										self.__refreshActivate();
+									}
+
+								} else if (self.__refreshActive && scrollTop > -self.__refreshHeight) {
+
+									self.__refreshActive = false;
+									if (self.__refreshDeactivate) {
+										self.__refreshDeactivate();
+									}
+
+								}
+							}
+
+						} else if (scrollTop > maxScrollTop) {
+
+							scrollTop = maxScrollTop;
+
+						} else {
+
+							scrollTop = 0;
+
+						}
+					}
+				}
+
+				// Keep list from growing infinitely (holding min 10, max 20 measure points)
+				if (positions.length > 60) {
+					positions.splice(0, 30);
+				}
+
+				// Track scroll movement for decleration
+				positions.push(scrollLeft, scrollTop, timeStamp);
+
+				// Sync scroll position
+				self.__publish(scrollLeft, scrollTop, level);
+
+			// Otherwise figure out whether we are switching into dragging mode now.
+			} else {
+
+				var minimumTrackingForScroll = self.options.locking ? 3 : 0;
+				var minimumTrackingForDrag = 5;
+
+				var distanceX = Math.abs(currentTouchLeft - self.__initialTouchLeft);
+				var distanceY = Math.abs(currentTouchTop - self.__initialTouchTop);
+
+				self.__enableScrollX = self.options.scrollingX && distanceX >= minimumTrackingForScroll;
+				self.__enableScrollY = self.options.scrollingY && distanceY >= minimumTrackingForScroll;
+
+				positions.push(self.__scrollLeft, self.__scrollTop, timeStamp);
+
+				self.__isDragging = (self.__enableScrollX || self.__enableScrollY) && (distanceX >= minimumTrackingForDrag || distanceY >= minimumTrackingForDrag);
+
+			}
+
+			// Update last touch positions and time stamp for next event
+			self.__lastTouchLeft = currentTouchLeft;
+			self.__lastTouchTop = currentTouchTop;
+			self.__lastTouchMove = timeStamp;
+			self.__lastScale = scale;
+
+		},
+
+
+		/**
+		 * Touch end handler for scrolling support
+		 */
+		doTouchEnd: function(timeStamp) {
+
+			if (timeStamp instanceof Date) {
+				timeStamp = timeStamp.valueOf();
+			}
+			if (typeof timeStamp !== "number") {
+				throw new Error("Invalid timestamp value: " + timeStamp);
+			}
+
+			var self = this;
+
+			// Ignore event when tracking is not enabled (no touchstart event on element)
+			// This is required as this listener ('touchmove') sits on the document and not on the element itself.
+			if (!self.__isTracking) {
+				return;
+			}
+
+			// Not touching anymore (when two finger hit the screen there are two touch end events)
+			self.__isTracking = false;
+
+			// Be sure to reset the dragging flag now. Here we also detect whether
+			// the finger has moved fast enough to switch into a deceleration animation.
+			if (self.__isDragging) {
+
+				// Reset dragging flag
+				self.__isDragging = false;
+
+				// Start deceleration
+				// Verify that the last move detected was in some relevant time frame
+				if (self.__isSingleTouch && self.options.animating && (timeStamp - self.__lastTouchMove) <= 100) {
+
+					// Then figure out what the scroll position was about 100ms ago
+					var positions = self.__positions;
+					var endPos = positions.length - 1;
+					var startPos = endPos;
+
+					// Move pointer to position measured 100ms ago
+					for (var i = endPos; i > 0 && positions[i] > (self.__lastTouchMove - 100); i -= 3) {
+						startPos = i;
+					}
+
+					// If start and stop position is identical in a 100ms timeframe,
+					// we cannot compute any useful deceleration.
+					if (startPos !== endPos) {
+
+						// Compute relative movement between these two points
+						var timeOffset = positions[endPos] - positions[startPos];
+						var movedLeft = self.__scrollLeft - positions[startPos - 2];
+						var movedTop = self.__scrollTop - positions[startPos - 1];
+
+						// Based on 50ms compute the movement to apply for each render step
+						self.__decelerationVelocityX = movedLeft / timeOffset * (1000 / 60);
+						self.__decelerationVelocityY = movedTop / timeOffset * (1000 / 60);
+
+						// How much velocity is required to start the deceleration
+						var minVelocityToStartDeceleration = self.options.paging || self.options.snapping ? 4 : 1;
+
+						// Verify that we have enough velocity to start deceleration
+						if (Math.abs(self.__decelerationVelocityX) > minVelocityToStartDeceleration || Math.abs(self.__decelerationVelocityY) > minVelocityToStartDeceleration) {
+
+							// Deactivate pull-to-refresh when decelerating
+							if (!self.__refreshActive) {
+
+								self.__startDeceleration(timeStamp);
+
+							}
+						}
+					}
+				}
+			}
+
+			// If this was a slower move it is per default non decelerated, but this
+			// still means that we want snap back to the bounds which is done here.
+			// This is placed outside the condition above to improve edge case stability
+			// e.g. touchend fired without enabled dragging. This should normally do not
+			// have modified the scroll positions or even showed the scrollbars though.
+			if (!self.__isDecelerating) {
+
+				if (self.__refreshActive && self.__refreshStart) {
+
+					// Use publish instead of scrollTo to allow scrolling to out of boundary position
+					// We don't need to normalize scrollLeft, zoomLevel, etc. here because we only y-scrolling when pull-to-refresh is enabled
+					self.__publish(self.__scrollLeft, -self.__refreshHeight, self.__zoomLevel, true);
+
+					if (self.__refreshStart) {
+						self.__refreshStart();
+					}
+
+				} else {
+
+					self.scrollTo(self.__scrollLeft, self.__scrollTop, true, self.__zoomLevel);
+
+					// Directly signalize deactivation (nothing todo on refresh?)
+					if (self.__refreshActive) {
+
+						self.__refreshActive = false;
+						if (self.__refreshDeactivate) {
+							self.__refreshDeactivate();
+						}
+
+					}
+				}
+			}
+
+			// Fully cleanup list
+			self.__positions.length = 0;
+
+		},
+
+
+
+		/*
+		---------------------------------------------------------------------------
+			PRIVATE API
+		---------------------------------------------------------------------------
+		*/
+
+		/**
+		 * Applies the scroll position to the content element
+		 *
+		 * @param left {Number} Left scroll position
+		 * @param top {Number} Top scroll position
+		 * @param animate {Boolean?false} Whether animation should be used to move to the new coordinates
+		 */
+		__publish: function(left, top, zoom, animate) {
+
+			var self = this;
+
+			// Remember whether we had an animation, then we try to continue based on the current "drive" of the animation
+			var wasAnimating = self.__isAnimating;
+			if (wasAnimating) {
+				core.effect.Animate.stop(wasAnimating);
+				self.__isAnimating = false;
+			}
+
+			if (animate && self.options.animating) {
+
+				// Keep scheduled positions for scrollBy/zoomBy functionality
+				self.__scheduledLeft = left;
+				self.__scheduledTop = top;
+				self.__scheduledZoom = zoom;
+
+				var oldLeft = self.__scrollLeft;
+				var oldTop = self.__scrollTop;
+				var oldZoom = self.__zoomLevel;
+
+				var diffLeft = left - oldLeft;
+				var diffTop = top - oldTop;
+				var diffZoom = zoom - oldZoom;
+
+				var step = function(percent, now, render) {
+
+					if (render) {
+
+						self.__scrollLeft = oldLeft + (diffLeft * percent);
+						self.__scrollTop = oldTop + (diffTop * percent);
+						self.__zoomLevel = oldZoom + (diffZoom * percent);
+
+						// Push values out
+						if (self.__callback) {
+							self.__callback(self.__scrollLeft, self.__scrollTop, self.__zoomLevel);
+						}
+
+					}
+				};
+
+				var verify = function(id) {
+					return self.__isAnimating === id;
+				};
+
+				var completed = function(renderedFramesPerSecond, animationId, wasFinished) {
+					if (animationId === self.__isAnimating) {
+						self.__isAnimating = false;
+					}
+
+					if (self.options.zooming) {
+						self.__computeScrollMax();
+					}
+				};
+
+				// When continuing based on previous animation we choose an ease-out animation instead of ease-in-out
+				self.__isAnimating = core.effect.Animate.start(step, verify, completed, 250, wasAnimating ? easeOutCubic : easeInOutCubic);
+
+			} else {
+
+				self.__scheduledLeft = self.__scrollLeft = left;
+				self.__scheduledTop = self.__scrollTop = top;
+				self.__scheduledZoom = self.__zoomLevel = zoom;
+
+				// Push values out
+				if (self.__callback) {
+					self.__callback(left, top, zoom);
+				}
+
+				// Fix max scroll ranges
+				if (self.options.zooming) {
+					self.__computeScrollMax();
+				}
+			}
+		},
+
+
+		/**
+		 * Recomputes scroll minimum values based on client dimensions and content dimensions.
+		 */
+		__computeScrollMax: function(zoomLevel) {
+
+			var self = this;
+
+			if (zoomLevel == null) {
+				zoomLevel = self.__zoomLevel;
+			}
+
+			self.__maxScrollLeft = Math.max((self.__contentWidth * zoomLevel) - self.__clientWidth, 0);
+			self.__maxScrollTop = Math.max((self.__contentHeight * zoomLevel) - self.__clientHeight, 0);
+
+		},
+
+
+
+		/*
+		---------------------------------------------------------------------------
+			ANIMATION (DECELERATION) SUPPORT
+		---------------------------------------------------------------------------
+		*/
+
+		/**
+		 * Called when a touch sequence end and the speed of the finger was high enough
+		 * to switch into deceleration mode.
+		 */
+		__startDeceleration: function(timeStamp) {
+
+			var self = this;
+
+			if (self.options.paging) {
+
+				var scrollLeft = Math.max(Math.min(self.__scrollLeft, self.__maxScrollLeft), 0);
+				var scrollTop = Math.max(Math.min(self.__scrollTop, self.__maxScrollTop), 0);
+				var clientWidth = self.__clientWidth;
+				var clientHeight = self.__clientHeight;
+
+				// We limit deceleration not to the min/max values of the allowed range, but to the size of the visible client area.
+				// Each page should have exactly the size of the client area.
+				self.__minDecelerationScrollLeft = Math.floor(scrollLeft / clientWidth) * clientWidth;
+				self.__minDecelerationScrollTop = Math.floor(scrollTop / clientHeight) * clientHeight;
+				self.__maxDecelerationScrollLeft = Math.ceil(scrollLeft / clientWidth) * clientWidth;
+				self.__maxDecelerationScrollTop = Math.ceil(scrollTop / clientHeight) * clientHeight;
+
+			} else {
+
+				self.__minDecelerationScrollLeft = 0;
+				self.__minDecelerationScrollTop = 0;
+				self.__maxDecelerationScrollLeft = self.__maxScrollLeft;
+				self.__maxDecelerationScrollTop = self.__maxScrollTop;
+
+			}
+
+			// Wrap class method
+			var step = function(percent, now, render) {
+				self.__stepThroughDeceleration(render);
+			};
+
+			// How much velocity is required to keep the deceleration running
+			var minVelocityToKeepDecelerating = self.options.snapping ? 4 : 0.1;
+
+			// Detect whether it's still worth to continue animating steps
+			// If we are already slow enough to not being user perceivable anymore, we stop the whole process here.
+			var verify = function() {
+				return Math.abs(self.__decelerationVelocityX) >= minVelocityToKeepDecelerating || Math.abs(self.__decelerationVelocityY) >= minVelocityToKeepDecelerating;
+			};
+
+			var completed = function(renderedFramesPerSecond, animationId, wasFinished) {
+				self.__isDecelerating = false;
+
+				// Animate to grid when snapping is active, otherwise just fix out-of-boundary positions
+				self.scrollTo(self.__scrollLeft, self.__scrollTop, self.options.snapping);
+			};
+
+			// Start animation and switch on flag
+			self.__isDecelerating = core.effect.Animate.start(step, verify, completed);
+
+		},
+
+
+		/**
+		 * Called on every step of the animation
+		 *
+		 * @param inMemory {Boolean?false} Whether to not render the current step, but keep it in memory only. Used internally only!
+		 */
+		__stepThroughDeceleration: function(render) {
+
+			var self = this;
+
+
+			//
+			// COMPUTE NEXT SCROLL POSITION
+			//
+
+			// Add deceleration to scroll position
+			var scrollLeft = self.__scrollLeft + self.__decelerationVelocityX;
+			var scrollTop = self.__scrollTop + self.__decelerationVelocityY;
+
+
+			//
+			// HARD LIMIT SCROLL POSITION FOR NON BOUNCING MODE
+			//
+
+			if (!self.options.bouncing) {
+
+				var scrollLeftFixed = Math.max(Math.min(self.__maxScrollLeft, scrollLeft), 0);
+				if (scrollLeftFixed !== scrollLeft) {
+					scrollLeft = scrollLeftFixed;
+					self.__decelerationVelocityX = 0;
+				}
+
+				var scrollTopFixed = Math.max(Math.min(self.__maxScrollTop, scrollTop), 0);
+				if (scrollTopFixed !== scrollTop) {
+					scrollTop = scrollTopFixed;
+					self.__decelerationVelocityY = 0;
+				}
+
+			}
+
+
+			//
+			// UPDATE SCROLL POSITION
+			//
+
+			if (render) {
+
+				self.__publish(scrollLeft, scrollTop, self.__zoomLevel);
+
+			} else {
+
+				self.__scrollLeft = scrollLeft;
+				self.__scrollTop = scrollTop;
+
+			}
+
+
+			//
+			// SLOW DOWN
+			//
+
+			// Slow down velocity on every iteration
+			if (!self.options.paging) {
+
+				// This is the factor applied to every iteration of the animation
+				// to slow down the process. This should emulate natural behavior where
+				// objects slow down when the initiator of the movement is removed
+				var frictionFactor = 0.95;
+
+				self.__decelerationVelocityX *= frictionFactor;
+				self.__decelerationVelocityY *= frictionFactor;
+
+			}
+
+
+			//
+			// BOUNCING SUPPORT
+			//
+
+			if (self.options.bouncing) {
+
+				var scrollOutsideX = 0;
+				var scrollOutsideY = 0;
+
+				// This configures the amount of change applied to deceleration/acceleration when reaching boundaries
+				var penetrationDeceleration = 0.03;
+				var penetrationAcceleration = 0.08;
+
+				// Check limits
+				if (scrollLeft < self.__minDecelerationScrollLeft) {
+					scrollOutsideX = self.__minDecelerationScrollLeft - scrollLeft;
+				} else if (scrollLeft > self.__maxDecelerationScrollLeft) {
+					scrollOutsideX = self.__maxDecelerationScrollLeft - scrollLeft;
+				}
+
+				if (scrollTop < self.__minDecelerationScrollTop) {
+					scrollOutsideY = self.__minDecelerationScrollTop - scrollTop;
+				} else if (scrollTop > self.__maxDecelerationScrollTop) {
+					scrollOutsideY = self.__maxDecelerationScrollTop - scrollTop;
+				}
+
+				// Slow down until slow enough, then flip back to snap position
+				if (scrollOutsideX !== 0) {
+					if (scrollOutsideX * self.__decelerationVelocityX <= 0) {
+						self.__decelerationVelocityX += scrollOutsideX * penetrationDeceleration;
+					} else {
+						self.__decelerationVelocityX = scrollOutsideX * penetrationAcceleration;
+					}
+				}
+
+				if (scrollOutsideY !== 0) {
+					if (scrollOutsideY * self.__decelerationVelocityY <= 0) {
+						self.__decelerationVelocityY += scrollOutsideY * penetrationDeceleration;
+					} else {
+						self.__decelerationVelocityY = scrollOutsideY * penetrationAcceleration;
+					}
+				}
+			}
+		}
+	};
+
+	// Copy over members to prototype
+	for (var key in members) {
+		Scroller.prototype[key] = members[key];
+	}
+
+})();

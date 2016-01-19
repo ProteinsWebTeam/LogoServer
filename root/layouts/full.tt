@@ -97,7 +97,8 @@
   [% END %]
 
   [% IF c.debug %]
-    <script src="/static/js/libs/hmm_logo.js"></script>
+    <script src="/static/js/libs/scroller.js"></script>
+    <script src="/static/js/libs/hmm_logo.bundle.js"></script>
     <script src="/static/js/libs/carousel.js"></script>
     <script src="/static/js/libs/jquery.qtip.js"></script>
     <script src="/static/js/application.js"></script>
