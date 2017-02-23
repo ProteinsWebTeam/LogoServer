@@ -114,7 +114,7 @@ sub index :Path('/logo') :Args(1) Does('ValidateUUID') {
     }
     $c->stash->{template} = 'hmmError.tt';
     return;
-  }
+  };
   # save it to a temp file
   $c->stash->{alphabet} = $alphabet;
   $c->stash->{logo} = $json;
@@ -148,7 +148,7 @@ sub index :Path('/logo') :Args(1) Does('ValidateUUID') {
     $c->stash->{rest}->{error} = $c->stash->{error};
     $c->detach('end');
     return;
-  }
+  };
 
   # if there is an error message, then we should display it once and remove
   # it so that doesn't keep popping up.
