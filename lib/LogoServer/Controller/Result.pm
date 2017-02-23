@@ -103,10 +103,11 @@ sub index :Path('/logo') :Args(1) Does('ValidateUUID') {
 
   # run the logo generation
   my $json;
-  try {
+  eval {
     $json = $c->model('LogoGen')->generate_json($hmm_path, $c->stash->{letter_height}, $c->stash->{processing});
-  } catch ($err) {
-    $c->stash->{error} = {format => $err};
+  };
+  if ($@) {
+    $c->stash->{error} = {format => $@};
     $c->stash->{template} = 'hmmError.tt';
     return;
   }
