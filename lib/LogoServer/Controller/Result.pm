@@ -110,7 +110,7 @@ sub index :Path('/logo') :Args(1) Does('ValidateUUID') {
     if ($@ =~ /does not appear to have an alignment map \(required\)/) {
       $c->stash->{error} = {format => 'The HMM file does not appear to have an alignment map (required)'};
     } else {
-      $c->stash->{error} = {format => $@};
+      $c->stash->{error} = {format => 'Unable to parse the HMM file'};
     }
     $c->stash->{template} = 'hmmError.tt';
     return;
