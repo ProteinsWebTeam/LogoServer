@@ -107,7 +107,11 @@ sub index :Path('/logo') :Args(1) Does('ValidateUUID') {
     $json = $c->model('LogoGen')->generate_json($hmm_path, $c->stash->{letter_height}, $c->stash->{processing});
   };
   if ($@) {
-    $c->stash->{error} = {format => $@};
+    if ($@ =~ /does not appear to have an alignment map \(required\)/) {
+      $c->stash->{error} = {format => 'The HMM file does not appear to have an alignment map (required)'};
+    } else {
+      $c->stash->{error} = {format => $@};
+    }
     $c->stash->{template} = 'hmmError.tt';
     return;
   }
