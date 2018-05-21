@@ -1016,7 +1016,7 @@ function HMMLogo(options) {
         this.colors = this.aa_colors;
     }
 
-    this.canvas_width = 1000;
+    this.canvas_width = 5000;
 
     var letter = null,
         probs_arr = null,
