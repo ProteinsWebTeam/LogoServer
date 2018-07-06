@@ -11,7 +11,7 @@ before execute => sub {
     $c->stash->{uuid} = $uuid;
   }
   else {
-    $c->stash->{error} = {uuid => 'The logo id passed was not vaild. It should be characters seperated by dashes in the form 8-4-4-4-12.'};
+    $c->stash->{error} = {uuid => 'The logo id passed was not valid. It should be characters separated by dashes in the form 8-4-4-4-12.'};
   }
 };
 

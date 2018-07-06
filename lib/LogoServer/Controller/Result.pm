@@ -1,6 +1,7 @@
 package LogoServer::Controller::Result;
 use Moose;
 use namespace::autoclean;
+use Try::Tiny;
 use IO::File;
 
 BEGIN { extends 'LogoServer::Controller::Base' }
@@ -102,30 +103,52 @@ sub index :Path('/logo') :Args(1) Does('ValidateUUID') {
 
 
   # run the logo generation
-  my $json = $c->model('LogoGen')->generate_json($hmm_path, $c->stash->{letter_height}, $c->stash->{processing});
+  my $json;
+  try {
+    $json = $c->model('LogoGen')->generate_json($hmm_path, $c->stash->{letter_height}, $c->stash->{processing});
+  } catch {
+    if ($_ =~ /does not appear to have an alignment map \(required\)/) {
+      $c->stash->{error} = {format => 'The HMM file does not appear to have an alignment map (required)'};
+    } else {
+      $c->stash->{error} = {format => 'Unable to parse the HMM file'};
+    }
+    $c->stash->{template} = 'hmmError.tt';
+    return;
+  };
   # save it to a temp file
   $c->stash->{alphabet} = $alphabet;
   $c->stash->{logo} = $json;
 
-  if ($c->req->preferred_content_type eq 'text/plain') {
-    $c->stash->{rest} = $c->model('LogoGen')->generate_tabbed($hmm_path, $c->stash->{letter_height});
-    $c->stash->{template} = 'result/tabbed.tt';
-  }
-  elsif ($c->req->preferred_content_type eq 'image/png') {
-    my $options = {
-      hmm => $hmm_path,
-      letter_height => $params->{letter_height},
-    };
-
-    if ($c->req->param('scaled')) {
-      $options->{scaled} = 1;
+  try {
+    if ($c->req->preferred_content_type eq 'text/plain') {
+      $c->stash->{rest} = $c->model('LogoGen')->generate_tabbed($hmm_path, $c->stash->{letter_height});
+      $c->stash->{template} = 'result/tabbed.tt';
     }
+    elsif ($c->req->preferred_content_type eq 'image/png') {
+      my $options = {
+        hmm => $hmm_path,
+        letter_height => $params->{letter_height},
+      };
 
-    $c->stash->{rest} = $c->model('LogoGen')->generate_png($options);
-  }
-  else {
-    $c->stash->{rest} = $c->model('LogoGen')->generate_raw($hmm_path, $c->stash->{letter_height});
-  }
+      if ($c->req->param('scaled')) {
+        $options->{scaled} = 1;
+      }
+
+      $c->stash->{rest} = $c->model('LogoGen')->generate_png($options);
+    }
+    else {
+      $c->stash->{rest} = $c->model('LogoGen')->generate_raw($hmm_path, $c->stash->{letter_height});
+    }
+  } catch {
+    if ($_ =~ /does not appear to have an alignment map \(required\)/) {
+      $c->stash->{error} = {format => 'The HMM file does not appear to have an alignment map (required)'};
+    } else {
+      $c->stash->{error} = {format => 'Unable to parse the HMM file'};
+    }
+    $c->stash->{rest}->{error} = $c->stash->{error};
+    $c->detach('end');
+    return;
+  };
 
   # if there is an error message, then we should display it once and remove
   # it so that doesn't keep popping up.
