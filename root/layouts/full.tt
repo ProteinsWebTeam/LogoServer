@@ -89,11 +89,8 @@
     <p>Please send questions or comments to <a href="mailto:&#x73;&#x6B;&#x79;&#x6C;&#x69;&#x67;&#x6E;&#x2D;&#x68;&#x65;&#x6C;&#x70;&#x40;&#x65;&#x62;&#x69;&#x2E;&#x61;&#x63;&#x2E;&#x75;&#x6B;">&#x73;&#x6B;&#x79;&#x6C;&#x69;&#x67;&#x6E;&#x2D;&#x68;&#x65;&#x6C;&#x70;&#x40;&#x65;&#x62;&#x69;&#x2E;&#x61;&#x63;&#x2E;&#x75;&#x6B;</a>.</p>
    <div class="privacy" style="margin-left: +30px"> 
     <script>
-        var localFrameworkVersion = '1.2'; // 1.1 or 1.2 or compliance or other
-        // if you select compliance or other we will add some helpful
-        // CSS styling, but you may need to add some CSS yourself
         var newDataProtectionNotificationBanner = document.createElement('script');
-        newDataProtectionNotificationBanner.src = 'https://ebi.emblstatic.net/web_guidelines/EBI-Framework/v1.3/js/ebi-global-includes/script/5_ebiFrameworkNotificationBanner.js?legacyRequest='+localFrameworkVersion;
+        newDataProtectionNotificationBanner.src = '/static/js/ebi-notification-banner.js';
         document.head.appendChild(newDataProtectionNotificationBanner);
         newDataProtectionNotificationBanner.onload = function() {
             ebiFrameworkRunDataProtectionBanner(); // invoke the banner
